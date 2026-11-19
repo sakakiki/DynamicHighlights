@@ -136,3 +136,6 @@ crashlytics-build.properties
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# 実験データ（被験者のログ）は個人データなのでGitに入れない
+/ExperimentData/

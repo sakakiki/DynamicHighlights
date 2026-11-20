@@ -185,6 +185,42 @@ namespace DynamicHighlights.Tests
             driver.Stop();
         }
 
+        [UnityTest]
+        public IEnumerator 一時停止中はωとsとvが保たれる()
+        {
+            CameraCheckDriver driver = GetOrAddDriver();
+            ExperimentConfig config = _controller.config;
+
+            // 動的制御・方式A で「速く往復」（150°/秒）を再生し、回している途中で一時停止する
+            _controller.MethodOverride = DynamicMethod.Absolute;
+            _controller.SetCondition(ViewingCondition.DynamicControl);
+            Assert.IsTrue(driver.Play(CameraCheckDriver.CreatePatterns(config.Phi)[1]));
+            yield return new WaitForSeconds(0.2f); // r ≈ 30°（見どころの手前を速く回している途中）
+            Assert.IsTrue(driver.SetPaused(true));
+            yield return null; // 一時停止が反映されるのを待つ
+
+            float omega = _controller.Omega;
+            float slope = _controller.Slope;
+            float v = _controller.VirtualYaw;
+            Assert.Greater(omega, 100f, "止める前は速く回している");
+
+            // 一時停止のまま 20 フレーム待っても、値が変わらない
+            yield return Wait(20);
+            Assert.AreEqual(omega, _controller.Omega, 1e-3f, "ω は止めた瞬間の値のまま（0 にならない）");
+            Assert.AreEqual(slope, _controller.Slope, 1e-4f, "s も止めた瞬間の値のまま");
+            Assert.AreEqual(v, _controller.VirtualYaw, 1e-3f, "方式A でも視界は動かない");
+
+            // 一時停止中に条件を切り替えても、ω は保たれる
+            _controller.SetCondition(ViewingCondition.NoControl);
+            yield return null;
+            Assert.AreEqual(omega, _controller.Omega, 1e-3f, "条件を変えても ω は保たれる");
+            Assert.AreEqual(1f, _controller.Slope, 1e-4f, "通常の視聴なので s = 1");
+
+            driver.ResetTime();
+            driver.Stop();
+            _controller.MethodOverride = null;
+        }
+
         /// <summary>テストの後は、必ず時間の進み方を等速に戻す（他のテストに影響しないように）。</summary>
         [TearDown]
         public void TearDown()

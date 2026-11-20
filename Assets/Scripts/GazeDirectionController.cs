@@ -129,6 +129,7 @@ namespace DynamicHighlights
         private float _previousR;     // 前回の r（方式B で Δr を求めるため）
         private bool _hasPrevious;    // _previousR が有効かどうか
         private bool _needsRecenter = true; // 最初のフレームで自動的にリセンターする
+        private double _lastSampleTime = double.NegativeInfinity; // 最後に角速度の計算機に記録したゲーム内時刻 [秒]
 
         // =================================================================
         // Unity が自動で呼ぶ関数
@@ -196,8 +197,8 @@ namespace DynamicHighlights
         {
             condition = newCondition;
             // 方式B は「いまの v から少しずつ動かす」方式なので、切り替えても v はそのまま引き継ぎます。
-            // 角速度の履歴は条件と関係ないので消さなくてよいですが、念のためリセットしておきます。
-            _estimator?.Reset();
+            // 角速度 ω は「頭がどう動いているか」で決まり、条件とは関係ないので、履歴はそのまま使い続けます。
+            // （消してしまうと、カメラ挙動チェックで一時停止中に条件を切り替えたとき ω が 0 になってしまう）
         }
 
         /// <summary>
@@ -244,6 +245,8 @@ namespace DynamicHighlights
                 _previousR = 0f;
                 _hasPrevious = true;
                 _estimator.Reset();
+                Omega = 0f;
+                _lastSampleTime = double.NegativeInfinity; // 次のフレームは必ず角速度の計算機に記録する
                 _needsRecenter = false;
             }
 
@@ -260,10 +263,21 @@ namespace DynamicHighlights
                 // カメラ挙動チェックのスロー再生（Time.timeScale を 0.25 などにする）では、
                 // ゲーム内時間がゆっくり進むので、映像はゆっくりでも ω は「本来の速さ」で計算されます。
                 // （現実の時間 Time.unscaledTimeAsDouble を使うと、スロー再生中は ω も遅くなってしまう）
-                _estimator.AddSample(Time.timeAsDouble, r);
-                Omega = _estimator.Omega;
+                double now = Time.timeAsDouble;
+
+                // ゲーム内時間が進んでいないフレーム（カメラ挙動チェックの一時停止中など）では、
+                // 角速度の計算機に記録せず、ω は前の値のまま保ちます。
+                // もし記録してしまうと「同じ時刻のデータ」ばかりになって速さが計算できなくなり、
+                // ω = 0 → s = 1 となって、止めているはずなのに方式A では視界が動いてしまいます。
+                if (now > _lastSampleTime)
+                {
+                    _estimator.AddSample(now, r);
+                    Omega = _estimator.Omega;
+                    _lastSampleTime = now;
+                }
 
                 // ---- ④ 傾き s を決める ----
+                // ω が同じでも、一時停止中に条件を切り替えたときに s が変わるように、毎フレーム計算し直す
                 Slope = ComputeSlope(Omega);
             }
 

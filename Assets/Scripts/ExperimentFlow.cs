@@ -280,7 +280,10 @@ namespace DynamicHighlights
             Trial trial = _trials[_trialIndex];
 
             // ① いま向いている方向を正面にし、この試行の条件を設定
+            //    （動作確認で方式を一時的に上書きしていても、本番は必ず設定ファイルの方式に戻す）
             controller.Recenter();
+            controller.MethodOverride = null;
+            Time.timeScale = 1f; // カメラ挙動チェックのスロー再生が残っていても、本番は必ず等速にする
             controller.SetCondition(trial.Condition);
 
             // ② オブジェクトの準備（文字をランダムに変え、計測をリセット）

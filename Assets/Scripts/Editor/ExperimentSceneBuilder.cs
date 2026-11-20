@@ -140,6 +140,8 @@ namespace DynamicHighlights.EditorTools
             hud.config = config;
             hud.headPose = headPose;
 
+            AttachCameraCheckDriver(controller); // カメラ挙動チェック用（下の関数を参照）
+
             // ⑦ シーンを保存し、ビルド設定（File → Build Profiles のシーン一覧）に登録する
             Directory.CreateDirectory(Path.GetDirectoryName(ScenePath) ?? "Assets/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -147,6 +149,63 @@ namespace DynamicHighlights.EditorTools
             AssetDatabase.SaveAssets();
 
             Debug.Log($"[ExperimentSceneBuilder] 実験シーンを作成しました：{ScenePath}");
+        }
+
+        // -----------------------------------------------------------------
+        // カメラ挙動チェック用のコンポーネント
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// いま開いているシーンに CameraCheckDriver（カメラ挙動チェック用）を追加します。
+        /// シーンを作り直さずに追加できるので、手作業で変更したシーンでも使えます。
+        /// </summary>
+        [MenuItem("DynamicHighlights/開いているシーンにカメラ挙動チェックを追加", priority = 11)]
+        public static void AddCameraCheckDriverMenu()
+        {
+            var controller = Object.FindAnyObjectByType<GazeDirectionController>();
+            if (controller == null)
+            {
+                EditorUtility.DisplayDialog("カメラ挙動チェックを追加", "GazeDirectionController が見つかりません。Experiment シーンを開いてください。", "OK");
+                return;
+            }
+            bool added = AttachCameraCheckDriver(controller);
+            EditorSceneManager.MarkSceneDirty(controller.gameObject.scene); // 「変更あり」にする（保存が必要になる）
+            EditorUtility.DisplayDialog("カメラ挙動チェックを追加",
+                added ? "追加しました。シーンを保存してください（Ctrl+S）。" : "すでに追加されています（参照を設定し直しました）。", "OK");
+        }
+
+        /// <summary>
+        /// コマンドライン（-executeMethod）から呼ぶための関数です。Experiment シーンを開いて追加し、保存します。
+        /// </summary>
+        public static void AddCameraCheckDriverFromCommandLine()
+        {
+            Scene scene = EditorSceneManager.OpenScene(ScenePath);
+            var controller = Object.FindAnyObjectByType<GazeDirectionController>();
+            if (controller == null)
+            {
+                Debug.LogError("[ExperimentSceneBuilder] GazeDirectionController が見つかりません。");
+                return;
+            }
+            AttachCameraCheckDriver(controller);
+            EditorSceneManager.SaveScene(scene);
+            Debug.Log("[ExperimentSceneBuilder] CameraCheckDriver を追加しました。");
+        }
+
+        /// <summary>
+        /// GazeDirectionController と同じ GameObject に CameraCheckDriver を付け、参照をつなぎます。
+        /// </summary>
+        /// <returns>新しく追加したら true、すでにあったら false</returns>
+        private static bool AttachCameraCheckDriver(GazeDirectionController controller)
+        {
+            var driver = controller.GetComponent<CameraCheckDriver>();
+            bool added = driver == null;
+            if (added) driver = controller.gameObject.AddComponent<CameraCheckDriver>();
+
+            driver.controller = controller;
+            driver.headPose = controller.headPose;
+            driver.config = controller.config;
+            EditorUtility.SetDirty(driver);
+            return added;
         }
 
         // -----------------------------------------------------------------

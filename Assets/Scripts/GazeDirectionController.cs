@@ -103,8 +103,21 @@ namespace DynamicHighlights
         /// <summary>v − r：実際の向きと画面の向きのズレ [度]</summary>
         public float Offset => HighlightMapping.WrapAngle(VirtualYaw - RealYaw);
 
+        /// <summary>
+        /// 動作確認用：設定ファイルの方式（方式A/B）を一時的に上書きします。null なら設定ファイルのとおり。
+        /// <para>
+        /// 「DynamicMethod?」の「?」は「値が無い（null）こともある」という意味です（Nullable 型）。
+        /// カメラ挙動チェックのウィンドウから方式を切り替えるときに使います。
+        /// Play 中に設定ファイル（ScriptableObject）を直接書き換えると、Play を止めても変更が残ってしまうため、
+        /// こちらで一時的に上書きするようにしています。試行の開始時には ExperimentFlow が null に戻します。
+        /// </para>
+        /// </summary>
+        public DynamicMethod? MethodOverride { get; set; }
+
         /// <summary>いま動的制御の計算方法（方式A/B）のどちらを使っているか</summary>
-        public DynamicMethod CurrentMethod => config != null ? config.dynamicMethod : DynamicMethod.Absolute;
+        public DynamicMethod CurrentMethod =>
+            MethodOverride ?? (config != null ? config.dynamicMethod : DynamicMethod.Absolute);
+        // 「A ?? B」は「A が null でなければ A、null なら B」という意味の書き方です。
 
         // =================================================================
         // 内部で使う変数
@@ -242,8 +255,12 @@ namespace DynamicHighlights
             // ---- ③ 角速度 ω を求める（1フレームに1回）----
             if (updateVelocity)
             {
-                // Time.unscaledTimeAsDouble：ゲーム開始からの時間 [秒]（一時停止などの影響を受けない時計）
-                _estimator.AddSample(Time.unscaledTimeAsDouble, r);
+                // Time.timeAsDouble：ゲーム開始からの「ゲーム内時間」[秒]。
+                // ふだん（Time.timeScale = 1）は現実の時間と同じです。
+                // カメラ挙動チェックのスロー再生（Time.timeScale を 0.25 などにする）では、
+                // ゲーム内時間がゆっくり進むので、映像はゆっくりでも ω は「本来の速さ」で計算されます。
+                // （現実の時間 Time.unscaledTimeAsDouble を使うと、スロー再生中は ω も遅くなってしまう）
+                _estimator.AddSample(Time.timeAsDouble, r);
                 Omega = _estimator.Omega;
 
                 // ---- ④ 傾き s を決める ----
@@ -301,7 +318,7 @@ namespace DynamicHighlights
                     return HighlightMapping.MapAbsolute(r, config.Phi, config.W, config.S0, config.symmetric);
 
                 case ViewingCondition.DynamicControl:
-                    if (config.dynamicMethod == DynamicMethod.Absolute)
+                    if (CurrentMethod == DynamicMethod.Absolute)
                     {
                         // 方式A：v = F(r; s(ω))
                         return HighlightMapping.MapAbsolute(r, config.Phi, config.W, Slope, config.symmetric);

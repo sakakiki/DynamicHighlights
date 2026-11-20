@@ -173,7 +173,7 @@ namespace DynamicHighlights
                         _trialNumber,
                         _isPractice ? 1 : 0,
                         _condition,
-                        config.dynamicMethod,
+                        controller != null ? controller.CurrentMethod : config.dynamicMethod,
                         target.targetId,
                         target.CurrentLabel,
                         target.FirstReachTime,

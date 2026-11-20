@@ -11,6 +11,8 @@
 //   ・頭を右に 25° 向けたとき、カメラが条件どおりの向き（v）になる
 //       通常のVR視聴 → 25°、制御一定 → 35°、動的制御（止まっている） → 25°
 //   ・1試行を開始して終了すると、CSV ファイルが保存される
+//   ・カメラ挙動チェックの自動再生で頭が動く
+//   ・スロー再生でも、角速度 ω は本来の速さで計算される
 //
 // 【実行方法】
 //   Window → General → Test Runner → PlayMode タブ → Run All
@@ -48,9 +50,9 @@ namespace DynamicHighlights.Tests
             yield return null; // シーンの読み込みを待つ
             yield return null;
 
-            _flow = Object.FindFirstObjectByType<ExperimentFlow>();
-            _controller = Object.FindFirstObjectByType<GazeDirectionController>();
-            _headPose = Object.FindFirstObjectByType<HeadPoseSource>();
+            _flow = Object.FindAnyObjectByType<ExperimentFlow>();
+            _controller = Object.FindAnyObjectByType<GazeDirectionController>();
+            _headPose = Object.FindAnyObjectByType<HeadPoseSource>();
             Assert.IsNotNull(_flow, "ExperimentFlow がシーンにありません");
             Assert.IsNotNull(_controller, "GazeDirectionController がシーンにありません");
             Assert.IsNotNull(_headPose, "HeadPoseSource がシーンにありません");
@@ -131,7 +133,83 @@ namespace DynamicHighlights.Tests
             Directory.Delete(folder, true);
         }
 
+        [UnityTest]
+        public IEnumerator 自動再生のパターンで頭が動く()
+        {
+            CameraCheckDriver driver = GetOrAddDriver();
+
+            // 「速く回して急停止」：φ−20°（初期値なら 25°）まで 150°/秒で回して 2 秒止まる
+            float phi = _controller.config.Phi;
+            CameraCheckDriver.MotionPattern pattern = CameraCheckDriver.CreatePatterns(phi)[2];
+            _controller.SetCondition(ViewingCondition.FixedControl);
+            Assert.IsTrue(driver.Play(pattern), "HMD が無いので再生できるはず");
+
+            yield return new WaitForSeconds(0.8f); // 回し終わって止まっている途中
+            Assert.IsTrue(driver.IsPlaying);
+            Assert.AreEqual(phi - 20f, _controller.RealYaw, 0.5f, "頭の向き r がパターンの角度になっている");
+            float expected = Core.HighlightMapping.MapAbsolute(phi - 20f, phi, _controller.config.W,
+                _controller.config.S0, _controller.config.symmetric);
+            Assert.AreEqual(expected, _controller.VirtualYaw, 0.5f, "制御一定なので v は折れ線どおり");
+
+            var history = new System.Collections.Generic.List<CameraCheckDriver.Sample>();
+            driver.CopyHistory(history);
+            Assert.Greater(history.Count, 1, "履歴が記録されている");
+
+            driver.Stop();
+            Assert.IsFalse(driver.IsPlaying);
+        }
+
+        [UnityTest]
+        public IEnumerator スロー再生でも角速度は本来の速さで計算される()
+        {
+            CameraCheckDriver driver = GetOrAddDriver();
+            ExperimentConfig config = _controller.config;
+
+            // 「速く往復」（150°/秒）を 0.25 倍のスローで再生する
+            CameraCheckDriver.MotionPattern pattern = CameraCheckDriver.CreatePatterns(config.Phi)[1];
+            _controller.SetCondition(ViewingCondition.DynamicControl);
+            Assert.IsTrue(driver.Play(pattern));
+            Assert.IsTrue(driver.SetPlaybackSpeed(0.25f));
+            Assert.AreEqual(0.25f, Time.timeScale, 1e-4f);
+
+            float realStart = Time.realtimeSinceStartup;      // 現実の時間
+            yield return new WaitForSeconds(0.3f);            // ゲーム内時間で 0.3 秒（回している途中）
+            float realElapsed = Time.realtimeSinceStartup - realStart;
+
+            Assert.Greater(realElapsed, 0.9f, "現実の時間では約 4 倍（1.2 秒）かかる＝映像はスロー");
+            Assert.AreEqual(150f, _controller.Omega, 10f, "ω は本来の速さ（150°/秒）で計算される");
+            Assert.AreEqual(config.S0, _controller.Slope, 0.02f, "ω > ω₀ なので s = s₀");
+
+            driver.ResetTime();
+            Assert.AreEqual(1f, Time.timeScale, 1e-4f, "元に戻すと等速");
+            driver.Stop();
+        }
+
+        /// <summary>テストの後は、必ず時間の進み方を等速に戻す（他のテストに影響しないように）。</summary>
+        [TearDown]
+        public void TearDown()
+        {
+            Time.timeScale = 1f;
+        }
+
         // ---- 補助関数 ----
+
+        /// <summary>
+        /// シーンの CameraCheckDriver を返します。無ければこのテストの間だけ追加します
+        /// （カメラ挙動チェックのウィンドウと同じ動き）。
+        /// </summary>
+        private CameraCheckDriver GetOrAddDriver()
+        {
+            var driver = Object.FindAnyObjectByType<CameraCheckDriver>();
+            if (driver == null)
+            {
+                driver = _controller.gameObject.AddComponent<CameraCheckDriver>();
+                driver.controller = _controller;
+                driver.headPose = _headPose;
+                driver.config = _controller.config;
+            }
+            return driver;
+        }
 
         /// <summary>模擬操作の頭の向きを、少しずつ目的の角度まで回します。</summary>
         private IEnumerator TurnTo(float yaw)

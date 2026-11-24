@@ -6,7 +6,7 @@
 //
 //     ① HMD の向きを読む                     （HeadPoseSource）
 //     ② 実視線方向 r を求める                 （開始時の正面を 0° とした角度）
-//     ③ 角速度 ω を求める                     （AngularVelocityEstimator：スライド7）
+//     ③ 角速度 ω を求める                     （AngularVelocityEstimator：直近 N フレームの単純平均。元研究と同じ）
 //     ④ 傾き s を決める                       （条件によって 1 / s₀ / s(ω)）
 //     ⑤ 仮想視線方向 v を求める               （HighlightMapping：スライド5の折れ線）
 //     ⑥ カメラを「v の方向」に向ける
@@ -34,7 +34,7 @@
 //   これにより、ExperimentFlow（ログ記録）より先に、このフレームの r, v, ω, s が計算されます。
 //
 // 【他のファイルとの関係】
-//   ・ExperimentConfig     … パラメータ（φ, w, s₀, ω₀, τ, N）を読む
+//   ・ExperimentConfig     … パラメータ（φ, w, s₀, ω₀, N）を読む
 //   ・HeadPoseSource       … HMD の向きを読む
 //   ・HighlightMapping     … 数式（スライド4・5・7）
 //   ・AngularVelocityEstimator … 角速度 ω の推定
@@ -183,13 +183,12 @@ namespace DynamicHighlights
         }
 
         /// <summary>
-        /// 設定（τ や N）を変えたときに、角速度の計算機を作り直します。
+        /// 設定（N）を変えたときに、角速度の計算機を作り直します。
         /// </summary>
         public void CreateEstimator()
         {
             int frames = config != null ? config.velocityFrameCount : 5;
-            float tau = config != null ? config.tau : 0.05f;
-            _estimator = new AngularVelocityEstimator(frames, tau);
+            _estimator = new AngularVelocityEstimator(frames);
         }
 
         // =================================================================
@@ -209,7 +208,6 @@ namespace DynamicHighlights
             {
                 CreateEstimator();
             }
-            _estimator.Tau = config.tau;
 
             // ---- ① HMD の向きを読む ----
             if (!headPose.TryGetRotation(out Quaternion rawRotation)) return;

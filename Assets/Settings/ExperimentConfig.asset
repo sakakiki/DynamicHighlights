@@ -17,7 +17,6 @@ MonoBehaviour:
   symmetric: 1
   minSlope: 0.5
   omegaThreshold: 90
-  tau: 0.05
   velocityFrameCount: 5
   includePracticeTrial: 1
   trialDurationSeconds: 0

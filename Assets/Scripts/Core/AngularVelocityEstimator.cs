@@ -3,21 +3,30 @@
 // ---------------------------------------------------------------------
 // 【このファイルの役割】
 //   HMD の角速度 ω（頭がどれくらいの速さで左右に回っているか）を推定するクラスです。
-//   スライド7の式をそのまま実装しています。
+//   元にした研究と同じく、「直近 N フレームの角速度の単純平均」で求めます。
 //
-// 【スライド7の式】
-//   現在のフレームから k フレーム前の実視線方向を r_k、
-//   k フレーム前から (k−1) フレーム前までの時間を Δt_k、
-//   k フレーム前の中間時刻から現在の時刻までの時間を a_k とすると、
+// 【元にした研究の方法】
+//   元研究のプロジェクトでは、SteamVR の VelocityEstimator（CenterEyeAnchor に付けて、N = 5）で
+//   角速度を求めていました。その計算方法は次のとおりです。
+//     ① 毎フレーム「そのフレームで回った角度 ÷ そのフレームの時間」を計算する
+//     ② 直近 N フレーム分を足して、個数で割る（単純平均）
+//   本研究もこれに合わせています。
+//   （以前のスライド7の「指数重み付き平均」は Archive/角速度_指数重み付き平均/ に保管しています）
 //
-//       v_k = (r_{k−1} − r_k) / Δt_k          … 区間 k での角速度
-//       w_k = Δt_k · e^(−a_k / τ)             … 区間 k の重み（古いほど小さい）
-//       ω   = Σ(w_k · v_k) / Σ w_k  （k = 1〜N） … 重み付き平均
+// 【式】
+//   k フレーム前の実視線方向を r_k、k フレーム前から (k−1) フレーム前までの時間を Δt_k とすると、
 //
-//   ※ スライドでは N = 5（直近5フレーム分）です。
-//   ※ τ（タウ）は「どれくらい古いデータまで重視するか」を決める時定数 [秒]。
-//     τ が小さいほど新しいデータだけを重視し（反応が速いがガタつきやすい）、
-//     τ が大きいほど古いデータも使います（なめらかだが反応が遅い）。
+//       v_k = (r_{k−1} − r_k) / Δt_k          … 区間 k での角速度 [度/秒]
+//       ω   = (1/M) · Σ v_k   （k = 1〜M）    … 単純平均
+//       M   = min(これまでに計算した v_k の個数, N)
+//
+//   ※ N = 5（直近5フレーム分）。すべてのフレームを同じ重みで平均します。
+//   ※ 頭が止まると、ちょうど N フレーム後に ω = 0 になります。
+//
+// 【元研究との違い】
+//   元研究の VelocityEstimator は「3次元の回転（上下・首のかしげも含む）」の角速度 [ラジアン/秒] でした。
+//   本研究の制御は左右（ヨー）だけなので、左右の角度 r の変化だけで ω [度/秒] を求めています。
+//   平均の取り方（単純平均・N フレーム）は同じです。
 //
 // 【なぜ1フレームの差だけで計算しないのか】
 //   HMD のセンサー値には細かい揺れ（ノイズ）があるので、1フレームだけで計算すると
@@ -25,7 +34,7 @@
 //
 // 【他のファイルとの関係】
 //   GazeDirectionController.cs が毎フレーム AddSample() を呼び、
-//   その結果の Omega を使って傾き s を決めます。
+//   その結果の Omega を使って傾き s を決めます（スライド7の s(ω) の式）。
 // =====================================================================
 
 using UnityEngine;
@@ -33,32 +42,33 @@ using UnityEngine;
 namespace DynamicHighlights.Core
 {
     /// <summary>
-    /// 直近 N フレームの頭の向きから角速度 ω を推定するクラスです（スライド7）。
+    /// 直近 N フレームの角速度の単純平均で ω を推定するクラスです（元研究と同じ方法）。
     /// <para>
     /// 使い方：
     /// <code>
-    /// var estimator = new AngularVelocityEstimator(5, 0.05f); // N=5, τ=0.05秒
-    /// estimator.AddSample(時刻, 実視線方向r);                // 毎フレーム呼ぶ
-    /// float omega = estimator.Omega;                          // 推定された角速度 [度/秒]
+    /// var estimator = new AngularVelocityEstimator(5);   // N = 5
+    /// estimator.AddSample(時刻, 実視線方向r);              // 毎フレーム呼ぶ
+    /// float omega = estimator.Omega;                     // 推定された角速度 [度/秒]
     /// </code>
     /// </para>
     /// </summary>
     public class AngularVelocityEstimator
     {
-        // ---- 過去のデータを入れておく「リングバッファ」 ----
+        // ---- 各フレームの角速度 v_k を入れておく「リングバッファ」 ----
         // リングバッファとは、決まった大きさの配列を「輪っか」のように使い回す仕組みです。
         // 新しいデータを入れるたびに一番古いデータを上書きするので、
-        // 常に「直近 N+1 個」のデータだけが残ります（メモリを無駄に増やさない）。
-        private readonly double[] _times; // 各サンプルの時刻 [秒]
-        private readonly float[] _yaws;   // 各サンプルの実視線方向 r [度]
-        private int _newestIndex = -1;    // 一番新しいデータが入っている位置
-        private int _count;               // いま入っているデータの数
+        // 常に「直近 N 個」のデータだけが残ります（メモリを無駄に増やさない）。
+        private readonly float[] _velocities; // 各フレームの角速度 v_k [度/秒]
+        private int _nextIndex;               // 次にデータを書き込む位置
+        private int _velocityCount;           // いま入っている角速度の数（最大 N）
 
-        /// <summary>平均に使うフレーム数 N（スライドでは 5）</summary>
+        // ---- 1つ前のサンプル（角速度を計算するのに使う） ----
+        private bool _hasPrevious;   // 1つ前のサンプルがあるかどうか
+        private double _previousTime; // 1つ前の時刻 [秒]
+        private float _previousYaw;   // 1つ前の実視線方向 r [度]
+
+        /// <summary>平均に使うフレーム数 N（元研究では 5）</summary>
         public int FrameCount { get; }
-
-        /// <summary>時間減衰係数 τ [秒]</summary>
-        public float Tau { get; set; }
 
         /// <summary>最後に計算した角速度 ω [度/秒]。右回りがプラス、左回りがマイナス。</summary>
         public float Omega { get; private set; }
@@ -67,24 +77,20 @@ namespace DynamicHighlights.Core
         /// コンストラクタ（new したときに最初に呼ばれる関数）です。
         /// </summary>
         /// <param name="frameCount">平均に使うフレーム数 N（1以上）</param>
-        /// <param name="tau">時間減衰係数 τ [秒]</param>
-        public AngularVelocityEstimator(int frameCount, float tau)
+        public AngularVelocityEstimator(int frameCount)
         {
             FrameCount = Mathf.Max(1, frameCount);
-            Tau = tau;
-
-            // N 個の「区間」を作るには、N+1 個の「点（サンプル）」が必要です。
-            _times = new double[FrameCount + 1];
-            _yaws = new float[FrameCount + 1];
+            _velocities = new float[FrameCount];
         }
 
         /// <summary>
-        /// 過去のデータをすべて消します（リセンター時や条件の切り替え時に使う）。
+        /// 過去のデータをすべて消します（リセンターのときに使う）。
         /// </summary>
         public void Reset()
         {
-            _newestIndex = -1;
-            _count = 0;
+            _nextIndex = 0;
+            _velocityCount = 0;
+            _hasPrevious = false;
             Omega = 0f;
         }
 
@@ -96,70 +102,50 @@ namespace DynamicHighlights.Core
         /// <param name="yaw">いまの実視線方向 r [度]</param>
         public void AddSample(double time, float yaw)
         {
-            // ① リングバッファに追加（一番古いデータを上書き）
-            _newestIndex = (_newestIndex + 1) % _times.Length;
-            _times[_newestIndex] = time;
-            _yaws[_newestIndex] = yaw;
-            if (_count < _times.Length) _count++;
+            // ① 最初の1つ目は「前のサンプル」が無いので、記録するだけ（速さはまだ分からない）
+            if (!_hasPrevious)
+            {
+                _previousTime = time;
+                _previousYaw = yaw;
+                _hasPrevious = true;
+                return;
+            }
 
-            // ② ω を計算し直す
+            // ② このフレームの時間 Δt。時間が進んでいないデータは使わない（0 で割るのを防ぐ）
+            double deltaT = time - _previousTime;
+            if (deltaT <= 1e-6) return;
+
+            // ③ このフレームの角速度 v = (いまの r − 前の r) / Δt
+            //    角度の差は Mathf.DeltaAngle で計算します。
+            //    （そのまま引き算すると 179° → −179° のとき −358° になってしまうが、
+            //      DeltaAngle なら正しく +2° になる）
+            float velocity = (float)(Mathf.DeltaAngle(_previousYaw, yaw) / deltaT);
+
+            // ④ リングバッファに追加（N 個たまったら一番古いものを上書き）
+            _velocities[_nextIndex] = velocity;
+            _nextIndex = (_nextIndex + 1) % FrameCount;
+            if (_velocityCount < FrameCount) _velocityCount++;
+
+            _previousTime = time;
+            _previousYaw = yaw;
+
+            // ⑤ ω を計算し直す
             Omega = Compute();
         }
 
         /// <summary>
-        /// 「k フレーム前」のデータが配列のどこにあるかを返します（k = 0 が現在）。
-        /// </summary>
-        private int IndexOf(int k)
-        {
-            int length = _times.Length;
-            return ((_newestIndex - k) % length + length) % length;
-        }
-
-        /// <summary>
-        /// スライド7の式で ω を計算します。
+        /// 単純平均で ω を計算します。 ω = (1/M) · Σ v_k
         /// </summary>
         private float Compute()
         {
-            // 使える区間の数（データが少ない最初のうちは N より少ない）
-            int intervals = Mathf.Min(_count - 1, FrameCount);
-            if (intervals <= 0) return 0f;
+            if (_velocityCount == 0) return 0f;
 
-            double now = _times[IndexOf(0)]; // 現在の時刻 t₀
-
-            double sumWeightedVelocity = 0.0; // Σ w_k · v_k
-            double sumWeight = 0.0;           // Σ w_k
-
-            for (int k = 1; k <= intervals; k++)
+            float sum = 0f;
+            for (int i = 0; i < _velocityCount; i++)
             {
-                int older = IndexOf(k);     // k フレーム前
-                int newer = IndexOf(k - 1); // (k−1) フレーム前
-
-                // Δt_k：k フレーム前から (k−1) フレーム前までの時間
-                double deltaT = _times[newer] - _times[older];
-                if (deltaT <= 1e-6) continue; // 時間が進んでいないデータは使わない（0 で割るのを防ぐ）
-
-                // v_k = (r_{k−1} − r_k) / Δt_k
-                // 角度の差は Mathf.DeltaAngle で計算します。
-                // （そのまま引き算すると 179° → −179° のとき −358° になってしまうが、
-                //   DeltaAngle なら正しく +2° になる）
-                double velocity = Mathf.DeltaAngle(_yaws[older], _yaws[newer]) / deltaT;
-
-                // a_k：k フレーム前の区間の「中間時刻」から現在までの時間
-                double midTime = (_times[older] + _times[newer]) / 2.0;
-                double age = now - midTime;
-
-                // w_k = Δt_k · e^(−a_k / τ)
-                // τ が 0 以下の場合は減衰なし（区間の長さ Δt_k だけで重み付け）とします。
-                double weight = Tau > 0f ? deltaT * System.Math.Exp(-age / Tau) : deltaT;
-
-                sumWeightedVelocity += weight * velocity;
-                sumWeight += weight;
+                sum += _velocities[i];
             }
-
-            if (sumWeight <= 0.0) return 0f;
-
-            // ω = Σ(w_k · v_k) / Σ w_k
-            return (float)(sumWeightedVelocity / sumWeight);
+            return sum / _velocityCount; // データが N 個そろうまでは、そろっている分だけで平均する
         }
     }
 }

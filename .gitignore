@@ -139,3 +139,6 @@ crashlytics-build.properties
 
 # 実験データ（被験者のログ）は個人データなのでGitに入れない
 /ExperimentData/
+
+# 元研究から取り込んだが、本研究では使わない SDK など（容量が大きく、Unity 6 ではコンパイルエラーになるため Assets の外に退避）
+/Reference/元研究_SDKなど/

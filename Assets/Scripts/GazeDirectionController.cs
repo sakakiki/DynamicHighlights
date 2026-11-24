@@ -8,7 +8,7 @@
 //     ② 実視線方向 r を求める                 （開始時の正面を 0° とした角度）
 //     ③ 角速度 ω を求める                     （AngularVelocityEstimator：スライド7）
 //     ④ 傾き s を決める                       （条件によって 1 / s₀ / s(ω)）
-//     ⑤ 仮想視線方向 v を求める               （HighlightMapping：方式A または 方式B）
+//     ⑤ 仮想視線方向 v を求める               （HighlightMapping：スライド5の折れ線）
 //     ⑥ カメラを「v の方向」に向ける
 //
 // 【カメラの向きの決め方（⑥の詳しい説明）】
@@ -34,9 +34,9 @@
 //   これにより、ExperimentFlow（ログ記録）より先に、このフレームの r, v, ω, s が計算されます。
 //
 // 【他のファイルとの関係】
-//   ・ExperimentConfig     … パラメータ（φ, w, s₀, ω₀, τ, N, 方式A/B）を読む
+//   ・ExperimentConfig     … パラメータ（φ, w, s₀, ω₀, τ, N）を読む
 //   ・HeadPoseSource       … HMD の向きを読む
-//   ・HighlightMapping     … 数式（スライド4・5・7、方式B）
+//   ・HighlightMapping     … 数式（スライド4・5・7）
 //   ・AngularVelocityEstimator … 角速度 ω の推定
 //   ・ExperimentFlow       … 条件の切り替え（SetCondition）とリセンター（Recenter）を呼ぶ
 //   ・ExperimentLogger / DebugHud … RealYaw, VirtualYaw, Omega, Slope などを読む
@@ -103,22 +103,6 @@ namespace DynamicHighlights
         /// <summary>v − r：実際の向きと画面の向きのズレ [度]</summary>
         public float Offset => HighlightMapping.WrapAngle(VirtualYaw - RealYaw);
 
-        /// <summary>
-        /// 動作確認用：設定ファイルの方式（方式A/B）を一時的に上書きします。null なら設定ファイルのとおり。
-        /// <para>
-        /// 「DynamicMethod?」の「?」は「値が無い（null）こともある」という意味です（Nullable 型）。
-        /// カメラ挙動チェックのウィンドウから方式を切り替えるときに使います。
-        /// Play 中に設定ファイル（ScriptableObject）を直接書き換えると、Play を止めても変更が残ってしまうため、
-        /// こちらで一時的に上書きするようにしています。試行の開始時には ExperimentFlow が null に戻します。
-        /// </para>
-        /// </summary>
-        public DynamicMethod? MethodOverride { get; set; }
-
-        /// <summary>いま動的制御の計算方法（方式A/B）のどちらを使っているか</summary>
-        public DynamicMethod CurrentMethod =>
-            MethodOverride ?? (config != null ? config.dynamicMethod : DynamicMethod.Absolute);
-        // 「A ?? B」は「A が null でなければ A、null なら B」という意味の書き方です。
-
         // =================================================================
         // 内部で使う変数
         // =================================================================
@@ -126,8 +110,6 @@ namespace DynamicHighlights
         private AngularVelocityEstimator _estimator; // 角速度 ω を推定する計算機
         private float _startYawRaw;   // リセンターしたときの HMD のヨー角（これを r = 0° とする）
         private float _lastRawYaw;    // 前回の HMD のヨー角（真上を向いたときの予備）
-        private float _previousR;     // 前回の r（方式B で Δr を求めるため）
-        private bool _hasPrevious;    // _previousR が有効かどうか
         private bool _needsRecenter = true; // 最初のフレームで自動的にリセンターする
         private double _lastSampleTime = double.NegativeInfinity; // 最後に角速度の計算機に記録したゲーム内時刻 [秒]
 
@@ -196,7 +178,6 @@ namespace DynamicHighlights
         public void SetCondition(ViewingCondition newCondition)
         {
             condition = newCondition;
-            // 方式B は「いまの v から少しずつ動かす」方式なので、切り替えても v はそのまま引き継ぎます。
             // 角速度 ω は「頭がどう動いているか」で決まり、条件とは関係ないので、履歴はそのまま使い続けます。
             // （消してしまうと、カメラ挙動チェックで一時停止中に条件を切り替えたとき ω が 0 になってしまう）
         }
@@ -242,8 +223,6 @@ namespace DynamicHighlights
             {
                 _startYawRaw = rawYaw;
                 VirtualYaw = 0f;
-                _previousR = 0f;
-                _hasPrevious = true;
                 _estimator.Reset();
                 Omega = 0f;
                 _lastSampleTime = double.NegativeInfinity; // 次のフレームは必ず角速度の計算機に記録する
@@ -268,7 +247,7 @@ namespace DynamicHighlights
                 // ゲーム内時間が進んでいないフレーム（カメラ挙動チェックの一時停止中など）では、
                 // 角速度の計算機に記録せず、ω は前の値のまま保ちます。
                 // もし記録してしまうと「同じ時刻のデータ」ばかりになって速さが計算できなくなり、
-                // ω = 0 → s = 1 となって、止めているはずなのに方式A では視界が動いてしまいます。
+                // ω = 0 → s = 1 となって、止めているはずなのに視界が動いてしまいます。
                 if (now > _lastSampleTime)
                 {
                     _estimator.AddSample(now, r);
@@ -282,10 +261,7 @@ namespace DynamicHighlights
             }
 
             // ---- ⑤ 仮想視線方向 v を求める ----
-            float deltaR = _hasPrevious ? Mathf.DeltaAngle(_previousR, r) : 0f; // このフレームの頭の回転量 Δr
-            VirtualYaw = ComputeVirtualYaw(r, deltaR);
-            _previousR = r;
-            _hasPrevious = true;
+            VirtualYaw = ComputeVirtualYaw(r);
 
             // ---- ⑥ カメラを v の方向に向ける ----
             // ヨー方向に (v − r − 開始時の向き) だけ回してから、HMD の回転をかける。
@@ -315,11 +291,10 @@ namespace DynamicHighlights
         }
 
         /// <summary>
-        /// 条件と方式に応じて仮想視線方向 v を計算します。
+        /// 条件に応じて仮想視線方向 v を計算します。
         /// </summary>
         /// <param name="r">実視線方向 r [度]</param>
-        /// <param name="deltaR">このフレームの頭の回転量 Δr [度]（方式B で使う）</param>
-        private float ComputeVirtualYaw(float r, float deltaR)
+        private float ComputeVirtualYaw(float r)
         {
             switch (condition)
             {
@@ -332,13 +307,9 @@ namespace DynamicHighlights
                     return HighlightMapping.MapAbsolute(r, config.Phi, config.W, config.S0, config.symmetric);
 
                 case ViewingCondition.DynamicControl:
-                    if (CurrentMethod == DynamicMethod.Absolute)
-                    {
-                        // 方式A：v = F(r; s(ω))
-                        return HighlightMapping.MapAbsolute(r, config.Phi, config.W, Slope, config.symmetric);
-                    }
-                    // 方式B：v ← v + g(v; s(ω))·Δr
-                    return HighlightMapping.StepIncremental(VirtualYaw, deltaR, config.Phi, config.W, Slope, config.symmetric);
+                    // 本研究：s = s(ω) の絶対写像   v = F(r; s(ω))
+                    // ※ 頭を急に止めると s が 1 に戻り、r が同じでも v が少し戻る（既知の挙動。実験前に口頭で注意する）
+                    return HighlightMapping.MapAbsolute(r, config.Phi, config.W, Slope, config.symmetric);
 
                 default:
                     return r;

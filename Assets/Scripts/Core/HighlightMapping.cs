@@ -10,9 +10,9 @@
 //
 // 【対応するスライド】
 //   スライド4 … 見どころ範囲の端点 v₁, v₂, r₁, r₂ の計算
-//   スライド5 … 実視線方向 r から仮想視線方向 v を求める折れ線の式（方式A）
+//   スライド5 … 実視線方向 r から仮想視線方向 v を求める折れ線の式
 //   スライド7 … 角速度 ω から傾き s を求める式
-//   （追加）  … 方式B（増分ゲイン方式）：頭の動き Δr にゲイン g をかける
+//   ※ 以前あった「方式B（増分ゲイン方式）」は廃止しました（Archive/方式B_増分ゲイン/ を参照）。
 //
 // 【記号と変数名の対応】
 //   r   … 実視線方向（HMD の実際の向き）      → 変数名 r / realYaw   （単位：度）
@@ -38,7 +38,7 @@ using UnityEngine;
 namespace DynamicHighlights.Core
 {
     /// <summary>
-    /// 折れ線の「折れ曲がる点」と「各区間の傾き」をまとめた入れ物（構造体）です。
+    /// 折れ線の「折れ曲がる点」と見どころ範囲内の傾き s をまとめた入れ物（構造体）です。
     /// <para>
     /// 構造体（struct）は、いくつかの値をひとまとめにして持ち運ぶための仕組みです。
     /// 関数の戻り値として複数の値を一度に返したいときに便利です。
@@ -61,18 +61,6 @@ namespace DynamicHighlights.Core
         /// <summary>傾き s（見どころ範囲内の線分の傾き）</summary>
         public readonly float S;
 
-        /// <summary>
-        /// 区間①（0 ≦ r &lt; r₁）の傾き = v₁ / r₁。
-        /// 見どころより手前の区間で、ここでは視界が頭より「速く」回ります（傾き &gt; 1）。
-        /// </summary>
-        public readonly float GainBefore;
-
-        /// <summary>
-        /// 区間③（r₂ &lt; r ≦ 90）の傾き = (90 − v₂) / (90 − r₂)。
-        /// 見どころを過ぎた区間で、ここでも視界が頭より速く回ります（傾き &gt; 1）。
-        /// </summary>
-        public readonly float GainAfter;
-
         public MappingEndpoints(float v1, float v2, float r1, float r2, float s)
         {
             V1 = v1;
@@ -80,8 +68,6 @@ namespace DynamicHighlights.Core
             R1 = r1;
             R2 = r2;
             S = s;
-            GainBefore = v1 / r1;
-            GainAfter = (HighlightMapping.MaxAngle - v2) / (HighlightMapping.MaxAngle - r2);
         }
     }
 
@@ -116,7 +102,7 @@ namespace DynamicHighlights.Core
         /// <param name="phi">見どころ方向 φ [度]（0〜90の範囲）</param>
         /// <param name="width">見どころ範囲 w [度]</param>
         /// <param name="s">見どころ範囲内の線分の傾き s（0 &lt; s ≦ 1）</param>
-        /// <returns>端点と各区間の傾きをまとめた構造体</returns>
+        /// <returns>端点と傾き s をまとめた構造体</returns>
         public static MappingEndpoints ComputeEndpoints(float phi, float width, float s)
         {
             // s が小さすぎると r₁ が 0 以下になり、折れ線が作れなくなります。
@@ -135,18 +121,19 @@ namespace DynamicHighlights.Core
         }
 
         // -----------------------------------------------------------------
-        // ■ スライド5：折れ線の式（方式A：絶対写像）
+        // ■ スライド5：折れ線の式（絶対写像）
         // -----------------------------------------------------------------
 
         /// <summary>
-        /// 【方式A】実視線方向 r から仮想視線方向 v を直接計算します（スライド5の式）。
+        /// 実視線方向 r から仮想視線方向 v を直接計算します（スライド5の式）。
         /// <para>
         /// 「r がいくつなら v はいくつ」という対応表（写像）を使う方法なので「絶対写像」と呼びます。
-        /// 元にした研究（制御一定の条件）もこの方法です。
+        /// 元にした研究（制御一定の条件）も、本研究の動的制御も、この方法で v を計算します。
         /// </para>
         /// <para>
-        /// 注意：動的制御でこの方式を使うと、頭が止まって s が 1 に戻るときに、
-        /// r が変わっていなくても v が変わる（視界が勝手に動く）ことがあります。
+        /// 注意（既知の挙動）：動的制御では、頭を急に止めて s が 1 に戻るときに、
+        /// r が変わっていなくても v が変わる（視界が少し戻る）ことがあります。
+        /// 研究の焦点は「見どころ制御の動的変化」なので、この挙動は実験前に被験者へ口頭で伝えて対応します。
         /// </para>
         /// </summary>
         /// <param name="r">実視線方向 r [度]（-180〜180）</param>
@@ -206,133 +193,6 @@ namespace DynamicHighlights.Core
             float denominator = MaxAngle - e.R2;
             return r * (MaxAngle - e.V2) / denominator
                    - MaxAngle * (e.R2 - e.V2) / denominator;
-        }
-
-        // -----------------------------------------------------------------
-        // ■ 方式B：増分ゲイン方式
-        // -----------------------------------------------------------------
-
-        /// <summary>
-        /// 【方式B】頭の回転量 Δr にゲイン（倍率）g をかけて、仮想視線方向 v を少しずつ更新します。
-        /// <para>
-        /// 考え方：v_new = v_old + g(v_old) × Δr
-        /// g は「いま v が折れ線のどの区間にいるか」で決まる、その区間の傾きです。
-        /// 　区間①（0〜v₁）   … g = v₁ / r₁
-        /// 　区間②（v₁〜v₂）  … g = s
-        /// 　区間③（v₂〜90） … g = (90 − v₂) / (90 − r₂)
-        /// 　90°より外側       … g = 1（制御なし）
-        /// </para>
-        /// <para>
-        /// この方式の良いところは、頭が止まっていれば Δr = 0 なので、
-        /// s がどう変わっても v は絶対に動かないことです（方式Aの「視界が勝手に動く」問題が起きない）。
-        /// s が一定のまま 0°→90° と回せば、方式Aとまったく同じ v になります（テストで確認しています）。
-        /// </para>
-        /// <para>
-        /// 1回の Δr で区間の境目をまたぐ場合は、境目までと境目から先に分けて計算します。
-        /// （例：区間①の傾き 1.4 で境目まで進み、残りの Δr を区間②の傾き 0.5 で進める）
-        /// </para>
-        /// </summary>
-        /// <param name="v">いまの仮想視線方向 v [度]</param>
-        /// <param name="deltaR">このフレームでの頭の回転量 Δr [度]（右回りがプラス）</param>
-        /// <param name="phi">見どころ方向 φ [度]</param>
-        /// <param name="width">見どころ範囲 w [度]</param>
-        /// <param name="s">傾き s</param>
-        /// <param name="symmetric">左右対称にするかどうか（MapAbsolute と同じ意味）</param>
-        /// <returns>更新後の仮想視線方向 v [度]（-180〜180 に収めた値）</returns>
-        public static float StepIncremental(float v, float deltaR, float phi, float width, float s, bool symmetric)
-        {
-            MappingEndpoints e = ComputeEndpoints(phi, width, s);
-
-            // ① 区間の境目（仮想視線方向 v の値）と、各区間の傾きを表にします。
-            //    breakpoints[i] 〜 breakpoints[i+1] の区間の傾きが gains[i] です。
-            float[] breakpoints;
-            float[] gains;
-            if (symmetric)
-            {
-                // -180 … -90 … -v₂ … -v₁ … v₁ … v₂ … 90 … 180
-                breakpoints = new[] { -180f, -MaxAngle, -e.V2, -e.V1, e.V1, e.V2, MaxAngle, 180f };
-                gains = new[] { 1f, e.GainAfter, e.S, e.GainBefore, e.S, e.GainAfter, 1f };
-            }
-            else
-            {
-                // -180 … 0 … v₁ … v₂ … 90 … 180（負の側は制御なし）
-                breakpoints = new[] { -180f, 0f, e.V1, e.V2, MaxAngle, 180f };
-                gains = new[] { 1f, e.GainBefore, e.S, e.GainAfter, 1f };
-            }
-
-            // ② 残りの回転量がなくなるまで、区間ごとに少しずつ進めます。
-            float remaining = deltaR;   // まだ v に反映していない頭の回転量 [度]
-            v = WrapAngle(v);
-
-            // 無限ループを防ぐため、最大の繰り返し回数を決めておきます（区間数より十分多い値）
-            for (int guard = 0; guard < 32 && Mathf.Abs(remaining) > 1e-6f; guard++)
-            {
-                int direction = remaining > 0f ? 1 : -1; // 右回り(+1) か 左回り(-1) か
-
-                // ±180° に到達したら反対側（∓180°）につなげる（角度は一周するため）
-                if (direction > 0 && v >= 180f) v -= 360f;
-                if (direction < 0 && v <= -180f) v += 360f;
-
-                // ③ いまの v がどの区間にいるかを探します。
-                //    ちょうど境目にいるときは「これから進む向きの区間」を選びます。
-                int index = FindSegment(breakpoints, v, direction);
-                float gain = gains[index];
-                float boundary = direction > 0 ? breakpoints[index + 1] : breakpoints[index];
-
-                // ④ この区間の傾きで全部進めたら、どこまで行くかを計算します。
-                float wantedDeltaV = gain * remaining;
-                bool staysInSegment = direction > 0
-                    ? v + wantedDeltaV <= boundary
-                    : v + wantedDeltaV >= boundary;
-
-                if (staysInSegment)
-                {
-                    // 区間の中に収まる → そのまま進めて終わり
-                    v += wantedDeltaV;
-                    remaining = 0f;
-                }
-                else
-                {
-                    // 境目をまたぐ → 境目まで進め、使った分の Δr を差し引いて次の区間へ
-                    float deltaVToBoundary = boundary - v;
-                    remaining -= deltaVToBoundary / gain;
-                    v = boundary;
-                }
-            }
-
-            return WrapAngle(v);
-        }
-
-        /// <summary>
-        /// v がどの区間に入っているか（breakpoints の何番目の区間か）を返します。
-        /// </summary>
-        private static int FindSegment(float[] breakpoints, float v, int direction)
-        {
-            int last = breakpoints.Length - 2; // 区間の数 − 1
-            for (int i = 0; i <= last; i++)
-            {
-                float lo = breakpoints[i];
-                float hi = breakpoints[i + 1];
-                // 右回りなら [lo, hi)、左回りなら (lo, hi] に入っているかを調べる
-                bool inside = direction > 0 ? (v >= lo && v < hi) : (v > lo && v <= hi);
-                if (inside) return i;
-            }
-            return direction > 0 ? last : 0;
-        }
-
-        /// <summary>
-        /// 方式Bで、仮想視線方向 v の位置での傾き（ゲイン）g を返します。
-        /// デバッグ表示やログ用です。境目では右回り側の区間の値を返します。
-        /// </summary>
-        public static float GainAt(float v, float phi, float width, float s, bool symmetric)
-        {
-            MappingEndpoints e = ComputeEndpoints(phi, width, s);
-            float a = Mathf.Abs(v);
-            if (!symmetric && v < 0f) return 1f;
-            if (a >= MaxAngle) return 1f;
-            if (a < e.V1) return e.GainBefore;
-            if (a < e.V2) return e.S;
-            return e.GainAfter;
         }
 
         // -----------------------------------------------------------------

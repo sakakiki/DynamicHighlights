@@ -41,24 +41,6 @@ namespace DynamicHighlights
     }
 
     /// <summary>
-    /// 動的制御のときに v をどう計算するか（方式A / 方式B）です。
-    /// </summary>
-    public enum DynamicMethod
-    {
-        /// <summary>
-        /// 方式A：絶対写像。v = F(r; s(ω)) をそのまま計算する（スライドの式どおり）。
-        /// 頭が止まって s が変わると、r が同じでも v が動くことがある。
-        /// </summary>
-        Absolute = 0,
-
-        /// <summary>
-        /// 方式B：増分ゲイン。v ← v + g(v; s(ω))·Δr と少しずつ更新する。
-        /// 頭が止まっていれば v は動かない。
-        /// </summary>
-        Incremental = 1,
-    }
-
-    /// <summary>
     /// 実験のパラメータをまとめた設定ファイル（ScriptableObject）です。
     /// <para>
     /// [Header] は Inspector に見出しを表示し、[Tooltip] はマウスを乗せたときに説明を表示します。
@@ -100,9 +82,6 @@ namespace DynamicHighlights
         [Tooltip("N：角速度の計算に使うフレーム数（スライドでは 5）。")]
         [Range(1, 30)]
         public int velocityFrameCount = 5;
-
-        [Tooltip("動的制御での v の計算方法。\nAbsolute（方式A）：スライドの式どおりの絶対写像。\nIncremental（方式B）：頭の動きにゲインをかける方式。頭が止まると視界も止まる。")]
-        public DynamicMethod dynamicMethod = DynamicMethod.Absolute;
 
         // -----------------------------------------------------------------
         [Header("■ 実験の進行")]

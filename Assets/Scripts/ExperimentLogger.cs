@@ -161,19 +161,18 @@ namespace DynamicHighlights
             {
                 if (isNewFile)
                 {
-                    writer.WriteLine("participant,trial,is_practice,condition,dynamic_method,target_id,label,first_reach_s,dwell_s," +
+                    writer.WriteLine("participant,trial,is_practice,condition,target_id,label,first_reach_s,dwell_s," +
                                      "trial_duration_s,phi_deg,w_deg,s0,omega0_deg_per_s,tau_s,N,symmetric,frames_file");
                 }
 
                 foreach (TargetObject target in targets)
                 {
                     writer.WriteLine(string.Format(Invariant,
-                        "{0},{1},{2},{3},{4},{5},{6},{7:F3},{8:F3},{9:F3},{10},{11},{12},{13},{14},{15},{16},{17}",
+                        "{0},{1},{2},{3},{4},{5},{6:F3},{7:F3},{8:F3},{9},{10},{11},{12},{13},{14},{15},{16}",
                         _participantId,
                         _trialNumber,
                         _isPractice ? 1 : 0,
                         _condition,
-                        controller != null ? controller.CurrentMethod : config.dynamicMethod,
                         target.targetId,
                         target.CurrentLabel,
                         target.FirstReachTime,

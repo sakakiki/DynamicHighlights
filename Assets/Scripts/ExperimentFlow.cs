@@ -280,9 +280,7 @@ namespace DynamicHighlights
             Trial trial = _trials[_trialIndex];
 
             // ① いま向いている方向を正面にし、この試行の条件を設定
-            //    （動作確認で方式を一時的に上書きしていても、本番は必ず設定ファイルの方式に戻す）
             controller.Recenter();
-            controller.MethodOverride = null;
             Time.timeScale = 1f; // カメラ挙動チェックのスロー再生が残っていても、本番は必ず等速にする
             controller.SetCondition(trial.Condition);
 
@@ -401,7 +399,6 @@ namespace DynamicHighlights
 
                     ViewingCondition[] order = GetConditionOrder(participantId);
                     GUILayout.Label($"条件の順番：{string.Join(" → ", order)}");
-                    GUILayout.Label($"動的制御の方式：{DescribeMethod(config.dynamicMethod)}");
                     if (GUILayout.Button("実験を開始", GUILayout.Height(36))) BeginExperiment();
                     break;
 
@@ -411,10 +408,6 @@ namespace DynamicHighlights
                     GUILayout.Label($"被験者：{participantId}　試行 {_trialIndex + 1}/{_trials.Count}" +
                                     (trial.IsPractice ? "（練習）" : ""));
                     GUILayout.Label($"条件：{DescribeCondition(trial.Condition)}");
-                    if (trial.Condition == ViewingCondition.DynamicControl)
-                    {
-                        GUILayout.Label($"方式：{DescribeMethod(config.dynamicMethod)}");
-                    }
 
                     if (CurrentState == State.Ready)
                     {
@@ -466,12 +459,6 @@ namespace DynamicHighlights
                 case ViewingCondition.DynamicControl: return "動的制御（本研究）";
                 default: return condition.ToString();
             }
-        }
-
-        /// <summary>方式の日本語名を返します。</summary>
-        public static string DescribeMethod(DynamicMethod method)
-        {
-            return method == DynamicMethod.Absolute ? "方式A（絶対写像）" : "方式B（増分ゲイン）";
         }
     }
 }

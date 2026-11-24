@@ -19,7 +19,6 @@ MonoBehaviour:
   omegaThreshold: 90
   tau: 0.05
   velocityFrameCount: 5
-  dynamicMethod: 0
   includePracticeTrial: 1
   trialDurationSeconds: 0
   gazeAngleThreshold: 10

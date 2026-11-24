@@ -165,6 +165,19 @@ namespace DynamicHighlights.Tests
             Assert.IsFalse(HighlightMapping.Validate(95f, W, S0, out _), "φ が 90 以上");
         }
 
+        // ---------------- 既知の挙動（急停止） ----------------
+
+        [Test]
+        public void 止まったままsが戻るとvが動く_既知の挙動()
+        {
+            // 動的制御で r = 25° まで速く回すと s = 0.5 なので v = 35°。
+            // そこで急に止まると s = 1 に戻り v = 25° になる（頭は止まっているのに視界が 10° 戻る）。
+            // 研究の焦点ではないため、実験前に被験者へ口頭で伝えて対応する挙動です。
+            float vFast = HighlightMapping.MapAbsolute(25f, Phi, W, 0.5f, true);
+            float vStopped = HighlightMapping.MapAbsolute(25f, Phi, W, 1f, true);
+            Assert.AreEqual(10f, vFast - vStopped, Tolerance);
+        }
+
         // ---------------- 角度の便利関数 ----------------
 
         [Test]

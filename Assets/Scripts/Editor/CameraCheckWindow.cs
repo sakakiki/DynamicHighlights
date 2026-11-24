@@ -6,7 +6,7 @@
 //   テストを実行しなくても、Play 中にカメラの動きを目で見て確かめられます。
 //
 //   ウィンドウでできること：
-//     ① 条件の切り替え     … 通常 / 制御一定 / 動的・方式A / 動的・方式B をボタン1つで切り替え
+//     ① 条件の切り替え     … 通常 / 制御一定 / 動的制御 をボタン1つで切り替え
 //     ② 頭の動きの自動再生 … 「速く回して急停止」などのパターンを再生（CameraCheckDriver が動かす）
 //     ③ 上から見た図       … 実際の頭の向き r と、画面の向き v を矢印で表示
 //     ④ 時間変化のグラフ   … 直近数秒の r, v, s の変化
@@ -146,35 +146,24 @@ namespace DynamicHighlights.EditorTools
             using (new EditorGUI.DisabledScope(running))
             {
                 EditorGUILayout.BeginHorizontal();
-                ConditionButton("通常（制御なし）", ViewingCondition.NoControl, null);
-                ConditionButton("制御一定（元研究）", ViewingCondition.FixedControl, null);
-                ConditionButton("動的・方式A", ViewingCondition.DynamicControl, DynamicMethod.Absolute);
-                ConditionButton("動的・方式B", ViewingCondition.DynamicControl, DynamicMethod.Incremental);
+                ConditionButton("通常（制御なし）", ViewingCondition.NoControl);
+                ConditionButton("制御一定（元研究）", ViewingCondition.FixedControl);
+                ConditionButton("動的制御（本研究）", ViewingCondition.DynamicControl);
                 EditorGUILayout.EndHorizontal();
-            }
-
-            if (_controller.MethodOverride.HasValue && _controller.MethodOverride.Value != config.dynamicMethod)
-            {
-                EditorGUILayout.LabelField(
-                    $"※ 方式を一時的に {ExperimentFlow.DescribeMethod(_controller.MethodOverride.Value)} にしています" +
-                    $"（設定ファイルは {ExperimentFlow.DescribeMethod(config.dynamicMethod)} のまま。試行開始時に元に戻ります）",
-                    EditorStyles.miniLabel);
             }
         }
 
         /// <summary>
-        /// 条件のボタンを1つ描きます。method が null なら方式は関係ない条件です。
+        /// 条件のボタンを1つ描きます。いまの条件のボタンは水色になります。
         /// </summary>
-        private void ConditionButton(string label, ViewingCondition condition, DynamicMethod? method)
+        private void ConditionButton(string label, ViewingCondition condition)
         {
-            bool selected = _controller.condition == condition &&
-                            (method == null || _controller.CurrentMethod == method.Value);
+            bool selected = _controller.condition == condition;
 
             Color previous = GUI.backgroundColor;
             if (selected) GUI.backgroundColor = new Color(0.4f, 0.8f, 1f);
             if (GUILayout.Button(label, GUILayout.Height(28)))
             {
-                if (method.HasValue) _controller.MethodOverride = method.Value;
                 _controller.SetCondition(condition);
             }
             GUI.backgroundColor = previous;

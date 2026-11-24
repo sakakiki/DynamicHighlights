@@ -13,6 +13,7 @@
 //   ・1試行を開始して終了すると、CSV ファイルが保存される
 //   ・カメラ挙動チェックの自動再生で頭が動く
 //   ・スロー再生でも、角速度 ω は本来の速さで計算される
+//   ・一時停止中は ω・s・v が保たれる（視界が勝手に動かない）
 //
 // 【実行方法】
 //   Window → General → Test Runner → PlayMode タブ → Run All
@@ -87,16 +88,10 @@ namespace DynamicHighlights.Tests
             Assert.AreEqual(35f, _controller.VirtualYaw, 0.1f);
             Assert.AreEqual(35f, CameraYaw(), 0.1f, "カメラの向き");
 
-            // ③ 動的制御・方式A：止まっていれば ω = 0 → s = 1 → v = r = 25°
-            config.dynamicMethod = DynamicMethod.Absolute;
+            // ③ 動的制御：止まっていれば ω = 0 → s = 1 → v = r = 25°
             _controller.SetCondition(ViewingCondition.DynamicControl);
             yield return Wait(10);
             Assert.AreEqual(1f, _controller.Slope, 0.01f);
-            Assert.AreEqual(25f, _controller.VirtualYaw, 0.1f);
-
-            // ④ 動的制御・方式B：止まっていれば v は動かない（③の 25° のまま）
-            config.dynamicMethod = DynamicMethod.Incremental;
-            yield return Wait(10);
             Assert.AreEqual(25f, _controller.VirtualYaw, 0.1f);
 
             Object.Destroy(config);
@@ -191,8 +186,7 @@ namespace DynamicHighlights.Tests
             CameraCheckDriver driver = GetOrAddDriver();
             ExperimentConfig config = _controller.config;
 
-            // 動的制御・方式A で「速く往復」（150°/秒）を再生し、回している途中で一時停止する
-            _controller.MethodOverride = DynamicMethod.Absolute;
+            // 動的制御で「速く往復」（150°/秒）を再生し、回している途中で一時停止する
             _controller.SetCondition(ViewingCondition.DynamicControl);
             Assert.IsTrue(driver.Play(CameraCheckDriver.CreatePatterns(config.Phi)[1]));
             yield return new WaitForSeconds(0.2f); // r ≈ 30°（見どころの手前を速く回している途中）
@@ -208,7 +202,7 @@ namespace DynamicHighlights.Tests
             yield return Wait(20);
             Assert.AreEqual(omega, _controller.Omega, 1e-3f, "ω は止めた瞬間の値のまま（0 にならない）");
             Assert.AreEqual(slope, _controller.Slope, 1e-4f, "s も止めた瞬間の値のまま");
-            Assert.AreEqual(v, _controller.VirtualYaw, 1e-3f, "方式A でも視界は動かない");
+            Assert.AreEqual(v, _controller.VirtualYaw, 1e-3f, "一時停止中は視界も動かない");
 
             // 一時停止中に条件を切り替えても、ω は保たれる
             _controller.SetCondition(ViewingCondition.NoControl);
@@ -218,7 +212,6 @@ namespace DynamicHighlights.Tests
 
             driver.ResetTime();
             driver.Stop();
-            _controller.MethodOverride = null;
         }
 
         /// <summary>テストの後は、必ず時間の進み方を等速に戻す（他のテストに影響しないように）。</summary>

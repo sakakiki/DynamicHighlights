@@ -10,14 +10,13 @@
 //   横軸 … 実視線方向 r（-90°〜90°）
 //   縦軸 … 仮想視線方向 v（-90°〜90°）
 //   灰色の斜め線 … v = r（制御なし）
-//   水色の線     … いまの傾き s での折れ線（方式A の v = F(r; s)）
+//   水色の線     … いまの傾き s での折れ線（v = F(r; s)）
 //   薄い帯       … 見どころ範囲（v₁〜v₂）
 //   赤い点       … いまの (r, v)
 //
-//   方式A では赤い点は必ず水色の線の上にあります。
-//   s が変わると線の形が変わるので、頭が止まっていても点が上下に動くことがあります（← 方式A の問題）。
-//   方式B では、点は線から外れることがあります（v − r のズレが残るため）。
-//   そのかわり、頭が止まっていれば点は動きません。
+//   赤い点は必ず水色の線の上にあります。
+//   動的制御では s が変わると線の形が変わるので、頭が止まっていても点が上下に動くことがあります
+//   （頭を急に止めたときに視界が少し戻る、既知の挙動です）。
 //
 // 【操作】
 //   H キー … 表示/非表示の切り替え
@@ -77,18 +76,13 @@ namespace DynamicHighlights
 
             // ---- ① 数値の表示 ----
             string device = headPose != null && headPose.IsHmdActive ? "HMD" : "マウス模擬（右ドラッグ / ←→ / Shift）";
-            float gain = HighlightMapping.GainAt(controller.VirtualYaw, config.Phi, config.W, controller.Slope, config.symmetric);
 
             GUILayout.Label("<b>デバッグ表示（H で切替）</b>", style);
             GUILayout.Label($"入力：{device}", style);
             GUILayout.Label($"条件：{ExperimentFlow.DescribeCondition(controller.condition)}", style);
-            if (controller.condition == ViewingCondition.DynamicControl)
-            {
-                GUILayout.Label($"方式：{ExperimentFlow.DescribeMethod(controller.CurrentMethod)}", style);
-            }
             GUILayout.Label($"r = {controller.RealYaw,7:F1}°   v = {controller.VirtualYaw,7:F1}°", style);
             GUILayout.Label($"v − r = {controller.Offset,6:F1}°   ω = {controller.Omega,7:F1}°/s", style);
-            GUILayout.Label($"s = {controller.Slope:F3}   c = {controller.ControlStrength:F2}   g = {gain:F2}", style);
+            GUILayout.Label($"s = {controller.Slope:F3}   c = {controller.ControlStrength:F2}", style);
 
             if (!config.IsValid(out string message))
             {

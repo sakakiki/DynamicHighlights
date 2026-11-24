@@ -302,12 +302,12 @@ namespace DynamicHighlights
 
                 case ViewingCondition.FixedControl:
                     // 元にした研究：s = s₀ 固定の絶対写像
-                    return HighlightMapping.MapAbsolute(r, config.Phi, config.W, config.S0, config.symmetric);
+                    return HighlightMapping.MapAbsolute(r, config.Phi, config.W, config.S0, config.L);
 
                 case ViewingCondition.DynamicControl:
                     // 本研究：s = s(ω) の絶対写像   v = F(r; s(ω))
                     // ※ 頭を急に止めると s が 1 に戻り、r が同じでも v が少し戻る（既知の挙動。実験前に口頭で注意する）
-                    return HighlightMapping.MapAbsolute(r, config.Phi, config.W, Slope, config.symmetric);
+                    return HighlightMapping.MapAbsolute(r, config.Phi, config.W, Slope, config.L);
 
                 default:
                     return r;

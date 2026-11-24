@@ -162,7 +162,7 @@ namespace DynamicHighlights
                 if (isNewFile)
                 {
                     writer.WriteLine("participant,trial,is_practice,condition,target_id,label,first_reach_s,dwell_s," +
-                                     "trial_duration_s,phi_deg,w_deg,s0,omega0_deg_per_s,N,symmetric,frames_file");
+                                     "trial_duration_s,phi_deg,w_deg,s0,omega0_deg_per_s,N,bezier_L_deg,frames_file");
                 }
 
                 foreach (TargetObject target in targets)
@@ -183,7 +183,7 @@ namespace DynamicHighlights
                         config.S0,
                         config.Omega0,
                         config.velocityFrameCount,
-                        config.symmetric ? 1 : 0,
+                        config.L,
                         framesFileName));
                 }
             }

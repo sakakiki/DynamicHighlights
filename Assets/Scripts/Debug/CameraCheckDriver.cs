@@ -81,9 +81,44 @@ namespace DynamicHighlights
 
         /// <summary>
         /// 用意しているパターンの一覧を作ります。見どころ方向 φ に合わせて角度を決めます。
+        /// <para>
+        /// 見どころは1か所だけなので、φ が負（見どころが左）のときは、
+        /// 右向きで作ったパターンの角度をすべて左右反転します（説明文の「右」「左」も入れ替えます）。
+        /// </para>
         /// </summary>
-        /// <param name="phi">見どころ方向 φ [度]</param>
+        /// <param name="phi">見どころ方向 φ [度]（正なら右、負なら左）</param>
         public static MotionPattern[] CreatePatterns(float phi)
+        {
+            MotionPattern[] patterns = CreateRightSidePatterns(Mathf.Abs(phi));
+            if (phi >= 0f) return patterns;
+
+            foreach (MotionPattern pattern in patterns)
+            {
+                pattern.Description = SwapLeftRight(pattern.Description);
+                for (int i = 0; i < pattern.Steps.Length; i++)
+                {
+                    MotionStep step = pattern.Steps[i];
+                    // struct（構造体）は値のコピーなので、取り出して書き換えてから配列に戻します
+                    step.TargetYaw = -step.TargetYaw;
+                    step.Note = SwapLeftRight(step.Note);
+                    pattern.Steps[i] = step;
+                }
+            }
+            return patterns;
+        }
+
+        /// <summary>文章の「右」と「左」を入れ替えます（見どころが左にあるとき用）。</summary>
+        private static string SwapLeftRight(string text)
+        {
+            // いったん「右」を目印の文字（\u0001）にしてから入れ替える（そうしないと全部「左」になってしまう）
+            return text.Replace("右", "\u0001").Replace("左", "右").Replace("\u0001", "左");
+        }
+
+        /// <summary>
+        /// 見どころが右（φ &gt; 0）にあるときのパターンを作ります。
+        /// </summary>
+        /// <param name="phi">見どころ方向 |φ| [度]</param>
+        private static MotionPattern[] CreateRightSidePatterns(float phi)
         {
             return new[]
             {
@@ -472,11 +507,6 @@ namespace DynamicHighlights
                 Gizmos.color = Color.yellow;
                 Gizmos.DrawRay(origin, DirectionFromYaw(e.V1) * 6f);
                 Gizmos.DrawRay(origin, DirectionFromYaw(e.V2) * 6f);
-                if (config.symmetric)
-                {
-                    Gizmos.DrawRay(origin, DirectionFromYaw(-e.V1) * 6f);
-                    Gizmos.DrawRay(origin, DirectionFromYaw(-e.V2) * 6f);
-                }
             }
         }
 

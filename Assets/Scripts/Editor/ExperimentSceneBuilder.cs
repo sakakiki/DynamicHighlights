@@ -23,7 +23,7 @@
 //       ExperimentSystem    … 実験のスクリプト一式（HeadPoseSource, GazeDirectionController,
 //                              ExperimentLogger, ExperimentFlow, DebugHud）
 //       InstructionCanvas   … 正面に浮かぶ説明パネル
-//       Targets             … 鑑賞対象のオブジェクト（手前・見どころ・過ぎた方向。左右対称なら左側にも）
+//       Targets             … 鑑賞対象のオブジェクト（見どころ側に、手前・見どころ・過ぎた方向の3つ。見どころは1か所だけ）
 //
 // 【エディタ拡張とは】
 //   Unity エディタ自体に機能（メニューやボタン）を追加するスクリプトです。
@@ -333,30 +333,32 @@ namespace DynamicHighlights.EditorTools
 
         /// <summary>
         /// 鑑賞対象のオブジェクトを作ります（スライド9）。
-        /// 右側：手前（φ−25°）・見どころ（φ）・過ぎた方向（φ+25°）
-        /// 左右対称の設定なら、左側にも同じものを作ります。
+        /// 見どころ側（φ が正なら右、負なら左）に、手前（φ∓25°）・見どころ（φ）・過ぎた方向（φ±25°）を置きます。
+        /// <para>
+        /// 見どころは元研究と同じく1か所だけです。手前と過ぎた方向のオブジェクトは見どころではなく、
+        /// 「見どころ以外を見たいとき」の見やすさを測るための目標です（本研究で追加）。
+        /// 見どころの横幅は、元研究と同じく見どころ範囲 w の角度に合わせます。
+        /// </para>
         /// </summary>
         private static List<TargetObject> CreateTargets(ExperimentConfig config)
         {
             var parent = new GameObject("Targets");
             var targets = new List<TargetObject>();
 
-            float phi = config.Phi;
+            float side = config.Phi < 0f ? -1f : 1f; // 見どころが右なら +1、左なら −1
+            float phi = Mathf.Abs(config.Phi);
             float before = Mathf.Clamp(phi - NeighborOffset, 5f, 85f);
             float after = Mathf.Clamp(phi + NeighborOffset, 5f, 85f);
 
-            int[] sides = config.symmetric ? new[] { 1, -1 } : new[] { 1 };
-            foreach (int side in sides)
-            {
-                string suffix = side > 0 ? "_R" : "_L";
-                string sideName = side > 0 ? "右" : "左";
-                targets.Add(CreateTarget(parent.transform, "Before" + suffix, $"手前（{sideName}）", side * before,
-                    PrimitiveType.Cube, new Color(0.25f, 0.45f, 0.85f)));
-                targets.Add(CreateTarget(parent.transform, "Highlight" + suffix, $"見どころ（{sideName}）", side * phi,
-                    PrimitiveType.Cylinder, new Color(0.9f, 0.7f, 0.2f)));
-                targets.Add(CreateTarget(parent.transform, "After" + suffix, $"過ぎた方向（{sideName}）", side * after,
-                    PrimitiveType.Sphere, new Color(0.3f, 0.7f, 0.4f)));
-            }
+            // 見どころの横幅 [m]：距離 D の所で角度 w に見える幅 = 2·D·tan(w/2)
+            float highlightDiameter = 2f * TargetDistance * Mathf.Tan(config.W / 2f * Mathf.Deg2Rad);
+
+            targets.Add(CreateTarget(parent.transform, "Before", "手前", side * before,
+                PrimitiveType.Cube, new Color(0.25f, 0.45f, 0.85f), 0.8f));
+            targets.Add(CreateTarget(parent.transform, "Highlight", "見どころ", side * phi,
+                PrimitiveType.Cylinder, new Color(0.9f, 0.7f, 0.2f), highlightDiameter));
+            targets.Add(CreateTarget(parent.transform, "After", "過ぎた方向", side * after,
+                PrimitiveType.Sphere, new Color(0.3f, 0.7f, 0.4f), 0.8f));
             return targets;
         }
 
@@ -364,8 +366,9 @@ namespace DynamicHighlights.EditorTools
         /// 鑑賞対象のオブジェクトを1つ作ります。
         /// </summary>
         /// <param name="yaw">置く方向 [度]（正面 0°、右回りがプラス）</param>
+        /// <param name="size">本体の横幅 [m]</param>
         private static TargetObject CreateTarget(Transform parent, string id, string displayName, float yaw,
-            PrimitiveType shape, Color color)
+            PrimitiveType shape, Color color, float size)
         {
             // 根元の GameObject：目の高さに置く（注視の判定はこの位置で行う）
             // LookRotation で「カメラから見て奥の方向」を向かせると、文字が正しい向きで読めます。
@@ -380,12 +383,12 @@ namespace DynamicHighlights.EditorTools
             body.GetComponent<Renderer>().sharedMaterial = GetOrCreateMaterial($"Target_{id.Split('_')[0]}", color);
             if (shape == PrimitiveType.Cylinder)
             {
-                // 見どころは床から伸びる塔の形（高さ 3.2m）
-                body.transform.localScale = new Vector3(0.7f, EyeHeight, 0.7f);
+                // 見どころは床から伸びる塔の形（高さ 3.2m、横幅は見どころ範囲 w に合わせる）
+                body.transform.localScale = new Vector3(size, EyeHeight, size);
             }
             else
             {
-                body.transform.localScale = Vector3.one * 0.8f;
+                body.transform.localScale = Vector3.one * size;
 
                 // 台座（床から本体の下まで）
                 GameObject stand = CreatePrimitiveWithoutCollider(PrimitiveType.Cylinder, "Stand", root.transform);
@@ -401,7 +404,7 @@ namespace DynamicHighlights.EditorTools
             canvas.renderMode = RenderMode.WorldSpace;
             var rect = canvasObject.GetComponent<RectTransform>();
             rect.sizeDelta = new Vector2(160f, 60f);
-            rect.localPosition = new Vector3(0f, 0.75f, -0.6f); // 本体の少し上・手前
+            rect.localPosition = new Vector3(0f, 0.75f, -(size / 2f + 0.2f)); // 本体の少し上・手前（本体の表面より 0.2m 手前）
             rect.localScale = Vector3.one * 0.004f;             // 160 × 0.004 = 0.64m の幅
 
             var backgroundObject = new GameObject("Background", typeof(RectTransform));

@@ -9,7 +9,8 @@
 // 【確認していること】
 //   ・シーンを開いてエラーなく動く（参照の設定し忘れなどが無い）
 //   ・頭を右に 25° 向けたとき、カメラが条件どおりの向き（v）になる
-//       通常のVR視聴 → 25°、制御一定 → 35°、動的制御（止まっている） → 25°
+//       通常のVR視聴 → 25°、制御一定 → 約 32.42°、動的制御（止まっている） → 25°
+//   ・見どころと反対側（左）を向いたときは、どの条件でも制御されない
 //   ・1試行を開始して終了すると、CSV ファイルが保存される
 //   ・カメラ挙動チェックの自動再生で頭が動く
 //   ・スロー再生でも、角速度 ω は本来の速さで計算される
@@ -68,12 +69,12 @@ namespace DynamicHighlights.Tests
             _controller.Recenter();
             yield return null;
 
-            // スライド8と同じ値で確認する（設定ファイルの値は変えずに、テストの中だけで上書き）
+            // 元研究の最終的な値で確認する（設定ファイルの値は変えずに、テストの中だけで上書き）
             ExperimentConfig config = Object.Instantiate(_controller.config);
             config.highlightDirection = 45f;
             config.highlightWidth = 20f;
-            config.minSlope = 0.5f;
-            config.symmetric = true;
+            config.minSlope = 0.55f;
+            config.bezierLength = 5f;
             _controller.config = config;
 
             // ① 通常のVR視聴：v = r = 25°
@@ -82,17 +83,23 @@ namespace DynamicHighlights.Tests
             Assert.AreEqual(25f, _controller.VirtualYaw, 0.1f);
             Assert.AreEqual(25f, CameraYaw(), 0.1f, "カメラの向き");
 
-            // ② 制御一定（元研究、s = 0.5）：r = 25° → v = 35°
+            // ② 制御一定（元研究、s = 0.55、L = 5）：r = 25° → v ≒ 32.42°
+            //    （r = 25° は折れ点 P₁ の近くなので、ベジェ曲線の上の値になる）
             _controller.SetCondition(ViewingCondition.FixedControl);
             yield return Wait(3);
-            Assert.AreEqual(35f, _controller.VirtualYaw, 0.1f);
-            Assert.AreEqual(35f, CameraYaw(), 0.1f, "カメラの向き");
+            Assert.AreEqual(32.42f, _controller.VirtualYaw, 0.1f);
+            Assert.AreEqual(32.42f, CameraYaw(), 0.1f, "カメラの向き");
 
             // ③ 動的制御：止まっていれば ω = 0 → s = 1 → v = r = 25°
             _controller.SetCondition(ViewingCondition.DynamicControl);
             yield return Wait(10);
             Assert.AreEqual(1f, _controller.Slope, 0.01f);
             Assert.AreEqual(25f, _controller.VirtualYaw, 0.1f);
+
+            // ④ 見どころと反対側（左 30°）は、制御一定でも制御されない（見どころは右の1か所だけ）
+            _controller.SetCondition(ViewingCondition.FixedControl);
+            yield return TurnTo(-30f);
+            Assert.AreEqual(-30f, _controller.VirtualYaw, 0.1f);
 
             Object.Destroy(config);
         }
@@ -143,8 +150,8 @@ namespace DynamicHighlights.Tests
             Assert.IsTrue(driver.IsPlaying);
             Assert.AreEqual(phi - 20f, _controller.RealYaw, 0.5f, "頭の向き r がパターンの角度になっている");
             float expected = Core.HighlightMapping.MapAbsolute(phi - 20f, phi, _controller.config.W,
-                _controller.config.S0, _controller.config.symmetric);
-            Assert.AreEqual(expected, _controller.VirtualYaw, 0.5f, "制御一定なので v は折れ線どおり");
+                _controller.config.S0, _controller.config.L);
+            Assert.AreEqual(expected, _controller.VirtualYaw, 0.5f, "制御一定なので v は制御関数どおり");
 
             var history = new System.Collections.Generic.List<CameraCheckDriver.Sample>();
             driver.CopyHistory(history);

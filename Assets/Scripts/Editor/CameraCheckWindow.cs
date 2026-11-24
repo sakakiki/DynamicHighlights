@@ -334,12 +334,10 @@ namespace DynamicHighlights.EditorTools
             float s = _controller.condition == ViewingCondition.NoControl ? 1f : _controller.Slope;
             MappingEndpoints e = HighlightMapping.ComputeEndpoints(config.Phi, config.W, s);
             DrawSector(center, radius, e.V1, e.V2, BandColor);
-            if (config.symmetric) DrawSector(center, radius, -e.V2, -e.V1, BandColor);
 
             // 内側の弧：いまの s のときの「実際の頭の向き」での範囲 r₁〜r₂
             Handles.color = new Color(1f, 0.6f, 0.2f, 0.9f);
             Handles.DrawAAPolyLine(3f, ArcPoints(center, radius * 0.55f, e.R1, e.R2));
-            if (config.symmetric) Handles.DrawAAPolyLine(3f, ArcPoints(center, radius * 0.55f, -e.R2, -e.R1));
 
             // 外周の円と、15° ごとの目盛り
             Handles.color = new Color(1f, 1f, 1f, 0.35f);
@@ -395,11 +393,6 @@ namespace DynamicHighlights.EditorTools
             MappingEndpoints e = HighlightMapping.ComputeEndpoints(config.Phi, config.W, config.S0);
             EditorGUI.DrawRect(Rect.MinMaxRect(angleRect.x, AngleToY(angleRect, e.V2, angleRange), angleRect.xMax,
                 AngleToY(angleRect, e.V1, angleRange)), BandColor);
-            if (config.symmetric)
-            {
-                EditorGUI.DrawRect(Rect.MinMaxRect(angleRect.x, AngleToY(angleRect, -e.V1, angleRange), angleRect.xMax,
-                    AngleToY(angleRect, -e.V2, angleRange)), BandColor);
-            }
             foreach (float angle in new[] { -90f, -45f, 0f, 45f, 90f })
             {
                 float y = AngleToY(angleRect, angle, angleRange);

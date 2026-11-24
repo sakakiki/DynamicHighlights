@@ -51,25 +51,26 @@ namespace DynamicHighlights
     public class ExperimentConfig : ScriptableObject
     {
         // -----------------------------------------------------------------
-        [Header("■ 見どころの設定（スライド4・6）")]
+        [Header("■ 見どころの設定（元研究の論文 2.2〜2.3節。初期値は論文の評価2で使った最適値）")]
 
-        [Tooltip("φ：見どころ方向 [度]。開始時の正面を 0°、右回りをプラスとした角度。")]
-        [Range(1f, 89f)]
+        [Tooltip("φ：見どころ方向 [度]。開始時の正面を 0°、右回りをプラスとした角度。\n見どころは1か所だけで、正なら右側、負なら左側の 0°〜90° だけを制御します（反対側は制御なし）。\n元研究の評価2は 45°。")]
+        [Range(-89f, 89f)]
         public float highlightDirection = 45f;
 
-        [Tooltip("w：見どころ範囲 [度]（仮想視線方向上の幅）。w/2 が φ と (90−φ) より小さい必要があります。")]
+        [Tooltip("w：見どころ範囲 [度]（仮想視線方向上の幅）。見どころのオブジェクトが見える横幅に合わせます。\nw/2 が |φ| と (90−|φ|) より小さい必要があります。元研究の評価2は 20°（予備評価で実用的とされた範囲は 10〜20°）。")]
         [Range(1f, 88f)]
         public float highlightWidth = 20f;
 
-        [Tooltip("ON：左右対称に制御する（−φ の位置にも見どころ範囲ができる）。OFF：0°〜90° の右側だけ制御する。")]
-        public bool symmetric = true;
+        [Tooltip("L：折れ点の近くをベジェ曲線で置き換える長さ [度]（r-v グラフ上の長さ）。0 にすると角のある折れ線になります。\n元研究では、傾きの変化が滑らかに感じられる最小の値として 5 に固定。")]
+        [Range(0f, 15f)]
+        public float bezierLength = HighlightMapping.DefaultBezierLength;
 
         // -----------------------------------------------------------------
         [Header("■ 動的制御のパラメータ（スライド6・7）")]
 
-        [Tooltip("s₀：傾き s の最小値。制御一定の条件ではこの値で固定されます（元にした研究の最適値に合わせる）。")]
+        [Tooltip("s₀：傾き s の最小値。制御一定（元研究）の条件ではこの値で固定されます。\n元研究の最適値（w = 20 で見どころの見やすさを重視したとき）の 0.55。予備評価で実用的とされた範囲は 0.4〜0.85。")]
         [Range(0.05f, 1f)]
-        public float minSlope = 0.5f;
+        public float minSlope = 0.55f;
 
         [Tooltip("ω₀ [度/秒]：|ω| がこの値以上になると s = s₀（最も強い制御）になります。")]
         [Min(1f)]
@@ -109,6 +110,9 @@ namespace DynamicHighlights
         /// <summary>s₀：傾きの最小値</summary>
         public float S0 => minSlope;
 
+        /// <summary>L：ベジェ曲線で置き換える長さ [度]</summary>
+        public float L => bezierLength;
+
         /// <summary>ω₀：s が変化する |ω| の上限 [度/秒]</summary>
         public float Omega0 => omegaThreshold;
 
@@ -117,7 +121,7 @@ namespace DynamicHighlights
         /// </summary>
         public bool IsValid(out string message)
         {
-            return HighlightMapping.Validate(highlightDirection, highlightWidth, minSlope, out message);
+            return HighlightMapping.Validate(highlightDirection, highlightWidth, minSlope, bezierLength, out message);
         }
 
         /// <summary>

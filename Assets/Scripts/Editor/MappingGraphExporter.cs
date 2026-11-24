@@ -56,25 +56,26 @@ namespace DynamicHighlights.EditorTools
             string folder = Path.Combine(projectFolder, "ExperimentData");
             Directory.CreateDirectory(folder);
             string fileName = string.Format(CultureInfo.InvariantCulture,
-                "mapping_grid_phi{0}_w{1}_s0{2}_omega0{3}.csv", config.Phi, config.W, config.S0, config.Omega0);
+                "mapping_grid_phi{0}_w{1}_s0{2}_L{3}_omega0{4}.csv", config.Phi, config.W, config.S0, config.L, config.Omega0);
             string path = Path.Combine(folder, fileName);
 
             // ③ 表を作る
             //    ω：0 から ω₀ の 1.5 倍まで、ω₀ の 1/18 刻み（ω₀=90 なら 5°/s 刻み）
-            //    r：左右対称なら -90〜90、そうでなければ 0〜90 を 1° 刻み
+            //    r：見どころ側の 0〜90°（φ が負なら −90〜0°）を 1° 刻み（反対側は制御なしで v = r なので出さない）
             var builder = new StringBuilder();
             builder.AppendLine("omega_deg_per_s,s,c,r_deg,v_deg");
 
             float omegaStep = config.Omega0 / 18f;
-            int rStart = config.symmetric ? -90 : 0;
+            int rStart = config.Phi >= 0f ? 0 : -90;
+            int rEnd = config.Phi >= 0f ? 90 : 0;
             for (int i = 0; i <= 27; i++)
             {
                 float omega = i * omegaStep;
                 float s = HighlightMapping.SlopeFromOmega(omega, config.Omega0, config.S0);
                 float c = HighlightMapping.ControlStrength(s, config.S0);
-                for (int r = rStart; r <= 90; r++)
+                for (int r = rStart; r <= rEnd; r++)
                 {
-                    float v = HighlightMapping.MapAbsolute(r, config.Phi, config.W, s, config.symmetric);
+                    float v = HighlightMapping.MapAbsolute(r, config.Phi, config.W, s, config.L);
                     builder.AppendLine(string.Format(CultureInfo.InvariantCulture,
                         "{0:F2},{1:F4},{2:F4},{3},{4:F4}", omega, s, c, r, v));
                 }

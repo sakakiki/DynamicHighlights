@@ -14,8 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: DynamicHighlights::DynamicHighlights.ExperimentConfig
   highlightDirection: 45
   highlightWidth: 20
-  symmetric: 1
-  minSlope: 0.5
+  bezierLength: 5
+  minSlope: 0.55
   omegaThreshold: 90
   velocityFrameCount: 5
   includePracticeTrial: 1

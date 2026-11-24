@@ -10,7 +10,7 @@
 //   横軸 … 実視線方向 r（-90°〜90°）
 //   縦軸 … 仮想視線方向 v（-90°〜90°）
 //   灰色の斜め線 … v = r（制御なし）
-//   水色の線     … いまの傾き s での折れ線（v = F(r; s)）
+//   水色の線     … いまの傾き s での制御関数（v = F(r; s)。折れ点の近くはベジェ曲線で滑らか）
 //   薄い帯       … 見どころ範囲（v₁〜v₂）
 //   赤い点       … いまの (r, v)
 //
@@ -121,7 +121,7 @@ namespace DynamicHighlights
         /// </summary>
         private void UpdateGraphTexture(float s)
         {
-            string settings = $"{config.Phi}/{config.W}/{config.symmetric}";
+            string settings = $"{config.Phi}/{config.W}/{config.L}";
             if (_graph != null && Mathf.Abs(s - _drawnSlope) < 0.005f && settings == _drawnSettings) return;
             _drawnSlope = s;
             _drawnSettings = settings;
@@ -139,7 +139,7 @@ namespace DynamicHighlights
             for (int y = 0; y < GraphSize; y++)
             {
                 float v = Mathf.Lerp(-GraphRange, GraphRange, y / (float)(GraphSize - 1));
-                bool inBand = (v >= e.V1 && v <= e.V2) || (config.symmetric && v >= -e.V2 && v <= -e.V1);
+                bool inBand = v >= e.V1 && v <= e.V2; // 見どころは1か所だけ（φ が負なら左側）
                 for (int x = 0; x < GraphSize; x++)
                 {
                     _pixels[y * GraphSize + x] = inBand ? band : background;
@@ -162,7 +162,7 @@ namespace DynamicHighlights
             for (int x = 0; x < GraphSize; x++)
             {
                 float r = Mathf.Lerp(-GraphRange, GraphRange, x / (float)(GraphSize - 1));
-                float v = HighlightMapping.MapAbsolute(r, config.Phi, config.W, s, config.symmetric);
+                float v = HighlightMapping.MapAbsolute(r, config.Phi, config.W, s, config.L);
                 int y = Mathf.RoundToInt(ToPixel(v));
                 int from = previousY < 0 ? y : Mathf.Min(previousY, y);
                 int to = previousY < 0 ? y : Mathf.Max(previousY, y);

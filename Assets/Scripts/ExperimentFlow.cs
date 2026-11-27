@@ -2,41 +2,42 @@
 // ExperimentFlow.cs
 // ---------------------------------------------------------------------
 // 【このファイルの役割】
-//   実験全体の「進行役」です。被験者ID の入力から、各条件の試行、終了までを管理します。
+//   実験全体の「進行役」です。被験者ID の入力から、各セット・各試行の進行、終了までを管理します。
+//   試行の並び（どの条件・どのパターンを、どの順番で、左右どちらで行うか）は ExperimentPlan.cs が作ります。
 //
-// 【実験の流れ（状態の移り変わり）】
+// 【実験の組み立て】
+//   ・パターン … 参加者に何を見てもらうか（見どころの鑑賞 / 見どころより手前の鑑賞 / 見どころより奥の鑑賞）
+//   ・セット   … 同じ条件・同じパターンの試行のまとまり（初期値：右左交互に 6 試行）
+//                セットが終わるたびに、HMD を外してアンケートに答えてもらう（3パターン × 3条件 = 9セット）
+//   ・試行     … 「正面を向く → 合図で開始 → 対象を見て文字を読み上げる → 正面に戻る」の1回分
+//
+// 【試行の流れ（状態の移り変わり）】
 //
 //   [Setup 準備]  … PC 画面で被験者ID を入力して「実験を開始」
 //        ↓
-//   [Ready 待機] … VR 内に「正面を向いてください」と表示。制御はかけない（通常の視聴）。
+//   [Ready 待機] … VR 内に「次は右の見どころを見ます」などの指示を表示。オブジェクトは隠し、制御はかけない。
 //        ↓ 実験者が Space キー
-//   [Running 試行中] … リセンターして、その試行の条件で視線方向制御をかける。
-//                      オブジェクトに文字を表示し、ログを記録する。
-//        ↓ 実験者が Space キー（または制限時間）
-//   （次の試行があれば Ready に戻る。全部終わったら↓）
+//   [Running 試行中] … リセンターして、その試行の条件・見どころの方向で視線方向制御をかける。
+//                      オブジェクトを置いて表示し、見てもらう対象にだけ文字を出す。ログを記録する。
+//        ↓ 実験者が Space キー（被験者が文字を読み上げて正面に戻ったら。または制限時間）
+//   （次の試行があれば Ready に戻る。セットの最後ならアンケートの案内も出す。全部終わったら↓）
 //   [Finished 終了]
 //
 //   このように「いまどの状態か」によって処理を変える作り方を「状態機械（ステートマシン）」と呼びます。
 //
-// 【条件の順番（カウンターバランス）】
-//   3つの条件を全員同じ順番で行うと、「慣れ」や「疲れ」の影響が特定の条件に偏ってしまいます。
-//   そこで、3条件の並べ方6通りを被験者番号で順番に割り当てます。
-//   例：P01 → 1番目の並べ方、P02 → 2番目の並べ方、…、P07 → 1番目に戻る
-//   （6人の倍数の被験者を集めると、すべての並べ方が同じ回数になります）
-//
 // 【実験者のキー操作】
 //   Space … 試行の開始 / 終了
 //   R     … リセンター（いま向いている方向を正面にする）
-//   1/2/3 … 待機中に、次の試行の条件を強制的に変える（動作確認用）
+//   1/2/3 … 待機中に、いまのセットの残りの試行の条件を強制的に変える（動作確認用）
 //            1 = 通常のVR視聴、2 = 制御一定、3 = 動的制御
 //
 // 【他のファイルとの関係】
-//   GazeDirectionController（条件の切り替え・リセンター）、
-//   ExperimentLogger（ログの保存）、TargetObject（計測）、InstructionPanel（説明表示）を操作します。
+//   ExperimentPlan（試行の並び）、GazeDirectionController（条件・見どころの方向の切り替え、リセンター）、
+//   ExperimentLogger（ログの保存）、TargetObject（配置・計測）、InstructionPanel（説明表示）を使います。
 // =====================================================================
 
 using System.Collections.Generic;
-using System.Text;
+using System.Linq;
 using DynamicHighlights.Util;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -57,14 +58,6 @@ namespace DynamicHighlights
             Finished, // 全試行が終了
         }
 
-        /// <summary>1回の試行の情報</summary>
-        private struct Trial
-        {
-            public int Number;                 // 試行番号（練習 0、本番 1〜3）
-            public ViewingCondition Condition; // 視聴条件
-            public bool IsPractice;            // 練習かどうか
-        }
-
         // =================================================================
         // Inspector で設定する項目
         // =================================================================
@@ -75,25 +68,12 @@ namespace DynamicHighlights
         public ExperimentLogger logger;
         public InstructionPanel instructionPanel;
 
-        [Tooltip("鑑賞対象のオブジェクトの一覧")]
+        [Tooltip("鑑賞対象のオブジェクトの一覧（見どころ Highlight と、鑑賞対象 Object の2つ）")]
         public List<TargetObject> targets = new List<TargetObject>();
 
         [Header("■ 被験者")]
-        [Tooltip("被験者ID（例：P01）。数字の部分で条件の順番が決まります。")]
+        [Tooltip("被験者ID（例：P01）。数字の部分でパターンと条件の順番が決まります。")]
         public string participantId = "P01";
-
-        // =================================================================
-        // 3条件の並べ方6通り（カウンターバランス用）
-        // =================================================================
-        private static readonly ViewingCondition[][] ConditionOrders =
-        {
-            new[] { ViewingCondition.NoControl, ViewingCondition.FixedControl, ViewingCondition.DynamicControl },
-            new[] { ViewingCondition.FixedControl, ViewingCondition.DynamicControl, ViewingCondition.NoControl },
-            new[] { ViewingCondition.DynamicControl, ViewingCondition.NoControl, ViewingCondition.FixedControl },
-            new[] { ViewingCondition.NoControl, ViewingCondition.DynamicControl, ViewingCondition.FixedControl },
-            new[] { ViewingCondition.FixedControl, ViewingCondition.NoControl, ViewingCondition.DynamicControl },
-            new[] { ViewingCondition.DynamicControl, ViewingCondition.FixedControl, ViewingCondition.NoControl },
-        };
 
         // =================================================================
         // 内部の状態
@@ -102,7 +82,14 @@ namespace DynamicHighlights
         /// <summary>いまの状態</summary>
         public State CurrentState { get; private set; } = State.Setup;
 
-        private readonly List<Trial> _trials = new List<Trial>(); // この被験者の試行の一覧
+        /// <summary>いまの試行（または次に行う試行）。Setup 中は null</summary>
+        public PlannedTrial CurrentTrial =>
+            _trialIndex >= 0 && _trialIndex < _trials.Count ? _trials[_trialIndex] : null;
+
+        /// <summary>この被験者の試行の数（練習を含む）</summary>
+        public int TrialCount => _trials.Count;
+
+        private List<PlannedTrial> _trials = new List<PlannedTrial>(); // この被験者の試行の一覧
         private int _trialIndex;      // いま何番目の試行か（0 から数える）
         private float _trialTime;     // 試行開始からの経過時間 [秒]
         private string _gazedTargetId = ""; // いま見ているオブジェクト
@@ -115,9 +102,10 @@ namespace DynamicHighlights
 
         private void Start()
         {
-            // 最初は制御なし。文字は隠しておく。
+            // 最初は制御なし。オブジェクトは隠しておく。
             controller.SetCondition(ViewingCondition.NoControl);
-            HideAllLabels();
+            controller.PhiOverride = null;
+            HideAllTargets();
             instructionPanel.Show("実験の準備中です。\nしばらくお待ちください。");
 
             if (config != null && !config.IsValid(out string message))
@@ -144,7 +132,7 @@ namespace DynamicHighlights
             {
                 case State.Ready:
                     if (keyboard.spaceKey.wasPressedThisFrame) StartTrial();
-                    // 1/2/3 キー：次の試行の条件を強制的に変える（動作確認用）
+                    // 1/2/3 キー：いまのセットの残りの試行の条件を強制的に変える（動作確認用）
                     if (keyboard.digit1Key.wasPressedThisFrame) OverrideCondition(ViewingCondition.NoControl);
                     if (keyboard.digit2Key.wasPressedThisFrame) OverrideCondition(ViewingCondition.FixedControl);
                     if (keyboard.digit3Key.wasPressedThisFrame) OverrideCondition(ViewingCondition.DynamicControl);
@@ -188,87 +176,50 @@ namespace DynamicHighlights
         /// </summary>
         public void BeginExperiment()
         {
-            _trials.Clear();
-
-            // 練習試行（通常のVR視聴）
-            if (config.includePracticeTrial)
-            {
-                _trials.Add(new Trial { Number = 0, Condition = ViewingCondition.NoControl, IsPractice = true });
-            }
-
-            // 本番の3試行（被験者番号で並べ方を決める）
-            ViewingCondition[] order = GetConditionOrder(participantId);
-            for (int i = 0; i < order.Length; i++)
-            {
-                _trials.Add(new Trial { Number = i + 1, Condition = order[i], IsPractice = false });
-            }
+            _trials = ExperimentPlan.Build(participantId, config);
 
             // 被験者ID から乱数の種（シード）を作る → 同じ ID なら同じ文字の並びになる（再現性のため）
-            _random = new System.Random(StableHash(participantId));
+            _random = new System.Random(ExperimentPlan.StableHash(participantId));
 
             _trialIndex = 0;
-            EnterReady(afterTrial: false);
+            _lastSavedMessage = "";
+            EnterReady(previous: null);
         }
 
         /// <summary>
-        /// 文字列から、毎回同じになる整数（ハッシュ値）を作ります。
-        /// （string.GetHashCode() は環境によって実行のたびに値が変わることがあるため、自分で計算します）
+        /// 待機状態に入ります。VR 内に、次の試行で何を見るかを表示します。
         /// </summary>
-        private static int StableHash(string text)
-        {
-            unchecked // 計算の途中で int の範囲を超えてもエラーにしない（あふれた分は捨てる）
-            {
-                int hash = 17;
-                foreach (char c in text ?? "") hash = hash * 31 + c;
-                return hash;
-            }
-        }
-
-        /// <summary>
-        /// 被験者ID の数字部分から、条件の並べ方を決めます。
-        /// 例："P07" → 7 → (7 − 1) % 6 = 0 → 1番目の並べ方
-        /// </summary>
-        public static ViewingCondition[] GetConditionOrder(string id)
-        {
-            int number = ExtractNumber(id);
-            int index = ((number - 1) % ConditionOrders.Length + ConditionOrders.Length) % ConditionOrders.Length;
-            return (ViewingCondition[])ConditionOrders[index].Clone();
-        }
-
-        /// <summary>
-        /// 文字列の中の数字だけを取り出して整数にします。数字が無ければ 1 を返します。
-        /// </summary>
-        private static int ExtractNumber(string id)
-        {
-            var digits = new StringBuilder();
-            foreach (char c in id ?? "")
-            {
-                if (char.IsDigit(c)) digits.Append(c);
-            }
-            return int.TryParse(digits.ToString(), out int number) ? number : 1;
-        }
-
-        /// <summary>
-        /// 待機状態に入ります。VR 内に指示を表示します。
-        /// </summary>
-        /// <param name="afterTrial">試行が終わった直後なら true（アンケートの案内を追加する）</param>
-        private void EnterReady(bool afterTrial)
+        /// <param name="previous">直前に終わった試行（実験の最初なら null）</param>
+        private void EnterReady(PlannedTrial previous)
         {
             CurrentState = State.Ready;
             controller.SetCondition(ViewingCondition.NoControl); // 待機中は制御しない
-            HideAllLabels();
+            HideAllTargets();
 
-            Trial trial = _trials[_trialIndex];
-            string title = trial.IsPractice ? "練習" : $"第{trial.Number}試行";
-            string header = afterTrial
-                ? "前の試行は終了です。お疲れさまでした。\n実験者の指示に従ってアンケートに回答してください。\n\n"
-                : "";
+            PlannedTrial trial = CurrentTrial;
+
+            // セットが変わるときの案内（前のセットが終わったら、アンケートに答えてもらう）
+            string header = "";
+            if (previous != null && previous.SetNumber != trial.SetNumber)
+            {
+                header = previous.IsPractice
+                    ? "練習は終わりです。\n次から本番が始まります。\n\n"
+                    : "このセットは終わりです。お疲れさまでした。\nHMD を外して、アンケートに答えてください。\n\n";
+            }
+
+            string setTitle = trial.IsPractice
+                ? $"練習　{trial.TrialInSet} / {trial.TrialsInSet}"
+                : $"セット {trial.SetNumber} / {SetCount}　試行 {trial.TrialInSet} / {trial.TrialsInSet}";
+
             instructionPanel.Show(
                 header +
-                $"【次は{title}です】\n" +
-                "この表示が正面に見えるように\n体と顔を向けてください。\n" +
-                "準備ができたら実験者に合図してください。");
+                $"【{setTitle}】\n" +
+                $"次は {ExperimentPlan.DescribeSide(trial.Side)}側 の {DescribeIntendedTarget(trial)} を見ます。\n" +
+                "この表示が正面に見えるように体と顔を向けて、\n準備ができたら実験者に合図してください。");
         }
+
+        /// <summary>本番のセットの数</summary>
+        private int SetCount => _trials.Count == 0 ? 0 : _trials.Max(t => t.SetNumber);
 
         /// <summary>
         /// 試行を開始します（待機中に Space キーで呼ばれます。テストからも呼べるよう public にしています）。
@@ -277,22 +228,30 @@ namespace DynamicHighlights
         {
             if (CurrentState != State.Ready) return; // 待機中以外は何もしない
 
-            Trial trial = _trials[_trialIndex];
+            PlannedTrial trial = CurrentTrial;
 
-            // ① いま向いている方向を正面にし、この試行の条件を設定
+            // ① いま向いている方向を正面にし、この試行の見どころの方向と条件を設定
             controller.Recenter();
             Time.timeScale = 1f; // カメラ挙動チェックのスロー再生が残っていても、本番は必ず等速にする
+            controller.PhiOverride = trial.HighlightYaw;
             controller.SetCondition(trial.Condition);
 
-            // ② オブジェクトの準備（文字をランダムに変え、計測をリセット）
+            // ② オブジェクトを置いて表示する。文字は「見てもらう対象」にだけ出す。
             foreach (TargetObject target in targets)
             {
+                bool isHighlight = target.targetId == ExperimentPlan.HighlightTargetId;
+                bool used = isHighlight || trial.HasObject;
+                target.SetVisible(used);
+                if (!used) continue;
+
+                target.PlaceAtYaw(isHighlight ? trial.HighlightYaw : trial.ObjectYaw);
                 target.ResetMeasurement();
-                target.RandomizeLabel(_random);
+                if (target.targetId == trial.IntendedTargetId) target.RandomizeLabel(_random);
+                else target.HideLabel();
             }
 
             // ③ ログの記録を開始
-            logger.BeginTrial(participantId, trial.Number, trial.Condition, trial.IsPractice);
+            logger.BeginTrial(participantId, trial);
 
             instructionPanel.Hide();
             _trialTime = 0f;
@@ -306,33 +265,38 @@ namespace DynamicHighlights
         {
             if (CurrentState != State.Running) return; // 試行中以外は何もしない
 
-            logger.EndTrial(targets, _trialTime, config);
+            PlannedTrial finished = CurrentTrial;
+            logger.EndTrial(finished, targets.Where(t => t.IsVisible), _trialTime, config);
             _lastSavedMessage = $"保存しました：{logger.LastFramesFilePath}";
 
             _trialIndex++;
             if (_trialIndex < _trials.Count)
             {
-                // 試行と試行の間でアンケートに答えてもらう場合は、ここで HMD を外してもらいます。
-                EnterReady(afterTrial: true);
+                EnterReady(previous: finished);
             }
             else
             {
                 CurrentState = State.Finished;
                 controller.SetCondition(ViewingCondition.NoControl);
-                HideAllLabels();
-                instructionPanel.Show("すべての試行が終了しました。\nご協力ありがとうございました。\n\nHMD を外してください。");
+                controller.PhiOverride = null;
+                HideAllTargets();
+                instructionPanel.Show(
+                    "すべての試行が終了しました。\nご協力ありがとうございました。\n\n" +
+                    "HMD を外して、最後のアンケートに答えてください。");
             }
         }
 
         /// <summary>
-        /// 待機中に、次の試行の条件を強制的に変えます（動作確認用）。
+        /// 待機中に、いまのセットの残りの試行の条件を強制的に変えます（動作確認用）。
         /// </summary>
         private void OverrideCondition(ViewingCondition condition)
         {
-            Trial trial = _trials[_trialIndex];
-            trial.Condition = condition;
-            _trials[_trialIndex] = trial; // struct なので、変更したものを入れ直す必要がある
-            Debug.Log($"[ExperimentFlow] 次の試行の条件を {condition} に変更しました。");
+            int setNumber = CurrentTrial.SetNumber;
+            for (int i = _trialIndex; i < _trials.Count && _trials[i].SetNumber == setNumber; i++)
+            {
+                _trials[i].Condition = condition; // PlannedTrial は class なので、直接書き換えられる
+            }
+            Debug.Log($"[ExperimentFlow] セット {setNumber} の残りの試行の条件を {condition} に変更しました。");
         }
 
         /// <summary>
@@ -343,11 +307,12 @@ namespace DynamicHighlights
         {
             Transform cameraTransform = controller.viewCamera;
 
-            // 視野の中心に一番近いオブジェクトを探す
+            // 表示中のオブジェクトの中で、視野の中心に一番近いものを探す
             TargetObject closest = null;
             float closestAngle = float.MaxValue;
             foreach (TargetObject target in targets)
             {
+                if (!target.IsVisible) continue;
                 float angle = target.AngleFromView(cameraTransform);
                 if (angle < closestAngle)
                 {
@@ -361,15 +326,26 @@ namespace DynamicHighlights
 
             foreach (TargetObject target in targets)
             {
+                if (!target.IsVisible) continue;
                 target.Measure(target == gazed, Time.deltaTime, _trialTime, config.highlightGazedTarget);
             }
 
             return gazed != null ? gazed.targetId : "";
         }
 
-        private void HideAllLabels()
+        private void HideAllTargets()
         {
-            foreach (TargetObject target in targets) target.HideLabel();
+            foreach (TargetObject target in targets)
+            {
+                target.HideLabel();
+                target.SetVisible(false);
+            }
+        }
+
+        /// <summary>見てもらう対象の名前（被験者向けの表示）</summary>
+        private static string DescribeIntendedTarget(PlannedTrial trial)
+        {
+            return trial.HasObject ? "「青い箱」" : "「見どころ（黄色い塔）」";
         }
 
         // =================================================================
@@ -385,7 +361,7 @@ namespace DynamicHighlights
             GUI.skin.button.fontSize = 16;
             GUI.skin.textField.fontSize = 16;
 
-            GUILayout.BeginArea(new Rect(10, 10, 430, Screen.height - 20), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(10, 10, 460, Screen.height - 20), GUI.skin.box);
             GUILayout.Label("<b>実験者パネル</b>", new GUIStyle(GUI.skin.label) { richText = true, fontSize = 18 });
 
             switch (CurrentState)
@@ -397,37 +373,56 @@ namespace DynamicHighlights
                     participantId = GUILayout.TextField(participantId, GUILayout.Width(150));
                     GUILayout.EndHorizontal();
 
-                    ViewingCondition[] order = GetConditionOrder(participantId);
-                    GUILayout.Label($"条件の順番：{string.Join(" → ", order)}");
+                    // この被験者の順番（パターンごとに、その中の条件の順番）
+                    ViewingPattern[] patterns = ExperimentPlan.GetPatternOrder(participantId);
+                    GUILayout.Label("順番：");
+                    for (int p = 0; p < patterns.Length; p++)
+                    {
+                        ViewingCondition[] conditions = ExperimentPlan.GetConditionOrder(participantId, p);
+                        GUILayout.Label($"　{p + 1}. {ExperimentPlan.DescribePattern(patterns[p])}：" +
+                                        string.Join(" → ", conditions.Select(ShortCondition)),
+                            new GUIStyle(GUI.skin.label) { fontSize = 14 });
+                    }
                     if (GUILayout.Button("実験を開始", GUILayout.Height(36))) BeginExperiment();
                     break;
 
                 case State.Ready:
                 case State.Running:
-                    Trial trial = _trials[_trialIndex];
-                    GUILayout.Label($"被験者：{participantId}　試行 {_trialIndex + 1}/{_trials.Count}" +
-                                    (trial.IsPractice ? "（練習）" : ""));
+                    PlannedTrial trial = CurrentTrial;
+                    GUILayout.Label($"被験者：{participantId}　通し {trial.Number}/{_trials.Count}");
+                    GUILayout.Label(trial.IsPractice
+                        ? $"練習　{trial.TrialInSet}/{trial.TrialsInSet}"
+                        : $"セット {trial.SetNumber}/{SetCount}　試行 {trial.TrialInSet}/{trial.TrialsInSet}");
+                    GUILayout.Label($"パターン：{ExperimentPlan.DescribePattern(trial.Pattern)}");
                     GUILayout.Label($"条件：{DescribeCondition(trial.Condition)}");
+                    GUILayout.Label($"向き：{ExperimentPlan.DescribeSide(trial.Side)}　見どころ {trial.HighlightYaw:F0}°" +
+                                    (trial.HasObject ? $"　青い箱 {trial.ObjectYaw:F0}°" : ""));
 
                     if (CurrentState == State.Ready)
                     {
-                        GUILayout.Label("状態：待機中（Space で開始）");
+                        GUILayout.Label("状態：待機中（被験者が正面を向いたら Space で開始）");
+                        if (trial.TrialInSet == 1 && !trial.IsPractice && trial.SetNumber > 1)
+                        {
+                            GUILayout.Label("※ 前のセットのアンケートが終わってから始めてください",
+                                new GUIStyle(GUI.skin.label) { fontSize = 14 });
+                        }
                     }
                     else
                     {
-                        GUILayout.Label($"状態：試行中 {_trialTime:F1} 秒（Space で終了）");
+                        GUILayout.Label($"状態：試行中 {_trialTime:F1} 秒（読み上げて正面に戻ったら Space で終了）");
                         GUILayout.Label($"注視中：{(_gazedTargetId == "" ? "なし" : _gazedTargetId)}");
-                        GUILayout.Label("表示中の文字（被験者の読み上げと照合）：");
                         foreach (TargetObject target in targets)
                         {
+                            if (!target.IsVisible) continue;
                             string reached = target.FirstReachTime >= 0f ? $"{target.FirstReachTime:F1}秒で到達" : "未到達";
-                            GUILayout.Label($"　{target.displayName}：{target.CurrentLabel}（{reached}）");
+                            string label = target.CurrentLabel == "" ? "（文字なし）" : $"文字「{target.CurrentLabel}」";
+                            GUILayout.Label($"　{target.displayName}：{label}　{reached}");
                         }
                     }
                     break;
 
                 case State.Finished:
-                    GUILayout.Label("全試行が終了しました。");
+                    GUILayout.Label("全試行が終了しました。最後のアンケート（順位づけ）をお願いします。");
                     GUILayout.Label($"データの保存先：\n{logger.OutputDirectory}");
                     if (GUILayout.Button("次の被験者へ（Setup に戻る）", GUILayout.Height(32)))
                     {
@@ -444,7 +439,7 @@ namespace DynamicHighlights
             }
 
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Space：開始/終了　R：リセンター\n1/2/3：次の条件を変更（待機中）\nH：デバッグ表示の切り替え",
+            GUILayout.Label("Space：開始/終了　R：リセンター\n1/2/3：このセットの条件を変更（待機中・動作確認用）\nH：デバッグ表示の切り替え",
                 new GUIStyle(GUI.skin.label) { fontSize = 13 });
             GUILayout.EndArea();
         }
@@ -457,6 +452,18 @@ namespace DynamicHighlights
                 case ViewingCondition.NoControl: return "通常のVR視聴（制御なし）";
                 case ViewingCondition.FixedControl: return "制御一定（元研究）";
                 case ViewingCondition.DynamicControl: return "動的制御（本研究）";
+                default: return condition.ToString();
+            }
+        }
+
+        /// <summary>条件の短い名前（実験者パネルの一覧用）</summary>
+        private static string ShortCondition(ViewingCondition condition)
+        {
+            switch (condition)
+            {
+                case ViewingCondition.NoControl: return "通常";
+                case ViewingCondition.FixedControl: return "一定";
+                case ViewingCondition.DynamicControl: return "動的";
                 default: return condition.ToString();
             }
         }

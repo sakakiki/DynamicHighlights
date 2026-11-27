@@ -2,10 +2,10 @@
 // TargetObject.cs
 // ---------------------------------------------------------------------
 // 【このファイルの役割】
-//   鑑賞の対象になるオブジェクト（スライド9の3つのオブジェクト）に付けるスクリプトです。
-//     ・見どころより手前の方向のオブジェクト
-//     ・見どころ方向のオブジェクト
-//     ・見どころを過ぎた方向のオブジェクト
+//   鑑賞の対象になるオブジェクトに付けるスクリプトです。シーンには2つあります。
+//     ・見どころ（黄色い塔。ID = Highlight）
+//     ・鑑賞対象（青い箱。ID = Object。「手前の鑑賞」「奥の鑑賞」のパターンで使う）
+//   試行ごとに、ExperimentFlow が PlaceAtYaw() で置く方向を変え、SetVisible() で表示を切り替えます。
 //
 //   このスクリプトは次のことをします。
 //     ① オブジェクトに表示する文字（ランダムな3文字）を試行ごとに変える
@@ -22,7 +22,7 @@
 //   ※ アイトラッキング（目の動き）ではなく、頭の向き（画面の中心）で判定しています。
 //
 // 【他のファイルとの関係】
-//   ExperimentFlow.cs が毎フレーム、全オブジェクトの角度を調べて
+//   ExperimentFlow.cs が毎フレーム、表示中のオブジェクトの角度を調べて
 //   一番中心に近いものを「注視中」として Measure() を呼びます。
 // =====================================================================
 
@@ -39,7 +39,7 @@ namespace DynamicHighlights
     {
         [Header("■ 識別情報")]
 
-        [Tooltip("ログに書き出すときの名前（半角英数字）。例：Before / Highlight / After")]
+        [Tooltip("ログに書き出すときの名前（半角英数字）。例：Highlight（見どころ）/ Object（鑑賞対象）")]
         public string targetId = "Highlight";
 
         [Tooltip("実験者向けの表示名。例：見どころ")]
@@ -116,6 +116,36 @@ namespace DynamicHighlights
         {
             CurrentLabel = "";
             if (labelText != null) labelText.text = "";
+        }
+
+        /// <summary>いま表示されている（試行で使っている）か</summary>
+        public bool IsVisible => gameObject.activeSelf;
+
+        /// <summary>
+        /// オブジェクトを表示する / 隠します（SetActive で GameObject ごと有効・無効を切り替える）。
+        /// 試行と試行の間は隠しておき、置き直したところを見られないようにします。
+        /// </summary>
+        public void SetVisible(bool visible)
+        {
+            gameObject.SetActive(visible);
+        }
+
+        /// <summary>
+        /// オブジェクトを、指定した方向（ヨー角）に置き直します。
+        /// 原点（被験者の立つ位置）からの水平距離と高さは今のまま変えません。
+        /// </summary>
+        /// <param name="yaw">置く方向 [度]（正面 0°、右回りがプラス）</param>
+        public void PlaceAtYaw(float yaw)
+        {
+            Vector3 position = transform.position;
+            float distance = new Vector2(position.x, position.z).magnitude; // 原点からの水平距離
+
+            float radian = yaw * Mathf.Deg2Rad;
+            var direction = new Vector3(Mathf.Sin(radian), 0f, Mathf.Cos(radian)); // 0° → +Z、90° → +X
+            transform.position = direction * distance + new Vector3(0f, position.y, 0f);
+
+            // 「被験者から見て奥の方向」を向かせると、文字が正しい向きで読めます
+            transform.rotation = Quaternion.LookRotation(direction);
         }
 
         /// <summary>

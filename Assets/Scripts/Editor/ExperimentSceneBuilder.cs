@@ -23,7 +23,8 @@
 //       ExperimentSystem    … 実験のスクリプト一式（HeadPoseSource, GazeDirectionController,
 //                              ExperimentLogger, ExperimentFlow, DebugHud）
 //       InstructionCanvas   … 正面に浮かぶ説明パネル
-//       Targets             … 鑑賞対象のオブジェクト（見どころ側に、手前・見どころ・過ぎた方向の3つ。見どころは1か所だけ）
+//       Targets             … 見どころ（黄色い塔）と鑑賞対象（青い箱）の2つ。
+//                              置く方向は試行ごとに ExperimentFlow が変える（ここでは最初の位置に置くだけ）
 //
 // 【エディタ拡張とは】
 //   Unity エディタ自体に機能（メニューやボタン）を追加するスクリプトです。
@@ -55,7 +56,6 @@ namespace DynamicHighlights.EditorTools
         private const float EyeHeight = 1.6f;      // 目の高さ [m]
         private const float TargetDistance = 6f;   // 鑑賞対象までの距離 [m]
         private const float PostDistance = 9f;     // 目印の柱までの距離 [m]
-        private const float NeighborOffset = 25f;  // 見どころから手前/過ぎた方向のオブジェクトまでの角度 [度]
 
         /// <summary>
         /// メニューから呼ばれる関数です。
@@ -332,12 +332,12 @@ namespace DynamicHighlights.EditorTools
         // -----------------------------------------------------------------
 
         /// <summary>
-        /// 鑑賞対象のオブジェクトを作ります（スライド9）。
-        /// 見どころ側（φ が正なら右、負なら左）に、手前（φ∓25°）・見どころ（φ）・過ぎた方向（φ±25°）を置きます。
+        /// 鑑賞のオブジェクトを2つ作ります。
         /// <para>
-        /// 見どころは元研究と同じく1か所だけです。手前と過ぎた方向のオブジェクトは見どころではなく、
-        /// 「見どころ以外を見たいとき」の見やすさを測るための目標です（本研究で追加）。
-        /// 見どころの横幅は、元研究と同じく見どころ範囲 w の角度に合わせます。
+        /// ・見どころ（黄色い塔、ID = Highlight）… 元研究と同じく1か所だけ。横幅は見どころ範囲 w の角度に合わせる。
+        /// ・鑑賞対象（青い箱、ID = Object）… 見どころではない物。「手前の鑑賞」「奥の鑑賞」のパターンで、
+        ///   「見どころ以外を見たいとき」の見やすさを測るために使う（本研究で追加）。
+        /// 置く方向は試行ごとに ExperimentFlow が PlaceAtYaw() で変えます。ここでは最初の位置に置くだけです。
         /// </para>
         /// </summary>
         private static List<TargetObject> CreateTargets(ExperimentConfig config)
@@ -345,20 +345,13 @@ namespace DynamicHighlights.EditorTools
             var parent = new GameObject("Targets");
             var targets = new List<TargetObject>();
 
-            float side = config.Phi < 0f ? -1f : 1f; // 見どころが右なら +1、左なら −1
-            float phi = Mathf.Abs(config.Phi);
-            float before = Mathf.Clamp(phi - NeighborOffset, 5f, 85f);
-            float after = Mathf.Clamp(phi + NeighborOffset, 5f, 85f);
-
             // 見どころの横幅 [m]：距離 D の所で角度 w に見える幅 = 2·D·tan(w/2)
             float highlightDiameter = 2f * TargetDistance * Mathf.Tan(config.W / 2f * Mathf.Deg2Rad);
 
-            targets.Add(CreateTarget(parent.transform, "Before", "手前", side * before,
-                PrimitiveType.Cube, new Color(0.25f, 0.45f, 0.85f), 0.8f));
-            targets.Add(CreateTarget(parent.transform, "Highlight", "見どころ", side * phi,
-                PrimitiveType.Cylinder, new Color(0.9f, 0.7f, 0.2f), highlightDiameter));
-            targets.Add(CreateTarget(parent.transform, "After", "過ぎた方向", side * after,
-                PrimitiveType.Sphere, new Color(0.3f, 0.7f, 0.4f), 0.8f));
+            targets.Add(CreateTarget(parent.transform, ExperimentPlan.HighlightTargetId, "見どころ（黄色い塔）",
+                config.Phi, PrimitiveType.Cylinder, new Color(0.9f, 0.7f, 0.2f), highlightDiameter));
+            targets.Add(CreateTarget(parent.transform, ExperimentPlan.ObjectTargetId, "鑑賞対象（青い箱）",
+                config.beforePatternObjectAngle, PrimitiveType.Cube, new Color(0.25f, 0.45f, 0.85f), 0.8f));
             return targets;
         }
 

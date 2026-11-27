@@ -7,13 +7,15 @@
 //
 // 【保存するファイル（1人の被験者につき）】
 //   ① フレームごとのログ（試行ごとに1ファイル）
-//        例：P01_T1_DynamicControl_frames.csv
+//        例：P01_S3_T2_Beyond_R_DynamicControl_20261127_153000_frames.csv
+//            （被験者_セット番号_セット内の試行番号_パターン_向き_条件_日時）
 //        1行 = 1フレーム。r, v, ω, s などの値が時系列で並びます。
 //        → r-v グラフや、ω の変化のグラフを描くのに使います。
 //
 //   ② 試行のまとめ（被験者ごとに1ファイル、試行のたびに行が追加される）
 //        例：P01_summary.csv
-//        1行 = 1試行 × 1オブジェクト。到達時間・注視時間とパラメータが入ります。
+//        1行 = 1試行 × 1オブジェクト（その試行で表示したもの）。
+//        セット・パターン・向き・角度、到達時間・注視時間、パラメータが入ります。
 //        → 条件ごとの比較（統計）に使います。
 //
 // 【保存場所】
@@ -57,9 +59,6 @@ namespace DynamicHighlights
 
         // 試行の情報（まとめファイルに書くために覚えておく）
         private string _participantId;
-        private int _trialNumber;
-        private ViewingCondition _condition;
-        private bool _isPractice;
 
         // 数値を書くときの書式。InvariantCulture を使うと、PC の言語設定に関係なく
         // 小数点が必ず「.」になります（国によっては「,」になってしまい CSV が壊れるため）。
@@ -89,24 +88,20 @@ namespace DynamicHighlights
         /// 試行の開始時に呼びます。フレームログのファイルを新しく作ります。
         /// </summary>
         /// <param name="participantId">被験者ID（例：P01）</param>
-        /// <param name="trialNumber">試行番号（練習は 0、本番は 1, 2, 3）</param>
-        /// <param name="condition">この試行の視聴条件</param>
-        /// <param name="isPractice">練習試行かどうか</param>
-        public void BeginTrial(string participantId, int trialNumber, ViewingCondition condition, bool isPractice)
+        /// <param name="trial">この試行の計画（セット・パターン・条件・向きなど）</param>
+        public void BeginTrial(string participantId, PlannedTrial trial)
         {
             EndFrameLog(); // 前のファイルが開いたままなら閉じる
 
             _participantId = participantId;
-            _trialNumber = trialNumber;
-            _condition = condition;
-            _isPractice = isPractice;
 
             Directory.CreateDirectory(OutputDirectory); // フォルダが無ければ作る
 
-            // ファイル名：被験者ID_T試行番号_条件名_日時_frames.csv
-            string label = isPractice ? "Practice" : condition.ToString();
+            // ファイル名：被験者ID_Sセット番号_Tセット内の試行番号_パターン_向き_条件名_日時_frames.csv
+            string label = trial.IsPractice ? "Practice" : trial.Condition.ToString();
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", Invariant);
-            string fileName = $"{Sanitize(participantId)}_T{trialNumber}_{label}_{timestamp}_frames.csv";
+            string fileName = $"{Sanitize(participantId)}_S{trial.SetNumber}_T{trial.TrialInSet}_" +
+                              $"{PatternCode(trial.Pattern)}_{ExperimentPlan.SideCode(trial.Side)}_{label}_{timestamp}_frames.csv";
             LastFramesFilePath = Path.Combine(OutputDirectory, fileName);
 
             _frameWriter = new StreamWriter(LastFramesFilePath, false, CsvEncoding);
@@ -114,6 +109,17 @@ namespace DynamicHighlights
             // 1行目：列の名前（ヘッダー）
             _frameWriter.WriteLine(
                 "frame,trial_time_s,r_deg,v_deg,offset_deg,omega_deg_per_s,s,c,pitch_deg,gaze_target");
+        }
+
+        /// <summary>ファイル名に使う、パターンの短い名前</summary>
+        private static string PatternCode(ViewingPattern pattern)
+        {
+            switch (pattern)
+            {
+                case ViewingPattern.BeforeHighlight: return "Before";
+                case ViewingPattern.BeyondHighlight: return "Beyond";
+                default: return "Highlight";
+            }
         }
 
         /// <summary>
@@ -144,10 +150,11 @@ namespace DynamicHighlights
         /// <summary>
         /// 試行の終了時に呼びます。フレームログを閉じ、まとめファイルに結果を追記します。
         /// </summary>
-        /// <param name="targets">計測したオブジェクトの一覧</param>
+        /// <param name="trial">終わった試行の計画</param>
+        /// <param name="targets">その試行で表示していたオブジェクトの一覧</param>
         /// <param name="trialDuration">試行の長さ [秒]</param>
         /// <param name="config">この試行で使ったパラメータ</param>
-        public void EndTrial(IEnumerable<TargetObject> targets, float trialDuration, ExperimentConfig config)
+        public void EndTrial(PlannedTrial trial, IEnumerable<TargetObject> targets, float trialDuration, ExperimentConfig config)
         {
             string framesFileName = Path.GetFileName(LastFramesFilePath);
             EndFrameLog();
@@ -161,24 +168,37 @@ namespace DynamicHighlights
             {
                 if (isNewFile)
                 {
-                    writer.WriteLine("participant,trial,is_practice,condition,target_id,label,first_reach_s,dwell_s," +
-                                     "trial_duration_s,phi_deg,w_deg,s0,omega0_deg_per_s,N,bezier_L_deg,frames_file");
+                    writer.WriteLine(
+                        "participant,trial,set,trial_in_set,is_practice,pattern,condition,side," +
+                        "highlight_yaw_deg,object_yaw_deg,target_id,is_intended,label,first_reach_s,dwell_s," +
+                        "trial_duration_s,w_deg,s0,omega0_deg_per_s,N,bezier_L_deg,frames_file");
                 }
+
+                // 鑑賞対象（青い箱）を置かない「見どころの鑑賞」パターンでは、object_yaw_deg は空欄にする
+                string objectYaw = trial.HasObject ? trial.ObjectYaw.ToString("F1", Invariant) : "";
 
                 foreach (TargetObject target in targets)
                 {
+                    bool isIntended = target.targetId == trial.IntendedTargetId; // この試行で見てもらう対象か
                     writer.WriteLine(string.Format(Invariant,
-                        "{0},{1},{2},{3},{4},{5},{6:F3},{7:F3},{8:F3},{9},{10},{11},{12},{13},{14},{15}",
+                        "{0},{1},{2},{3},{4},{5},{6},{7},{8:F1},{9},{10},{11},{12},{13:F3},{14:F3},{15:F3}," +
+                        "{16},{17},{18},{19},{20},{21}",
                         _participantId,
-                        _trialNumber,
-                        _isPractice ? 1 : 0,
-                        _condition,
+                        trial.Number,
+                        trial.SetNumber,
+                        trial.TrialInSet,
+                        trial.IsPractice ? 1 : 0,
+                        trial.Pattern,
+                        trial.Condition,
+                        ExperimentPlan.SideCode(trial.Side),
+                        trial.HighlightYaw,
+                        objectYaw,
                         target.targetId,
+                        isIntended ? 1 : 0,
                         target.CurrentLabel,
                         target.FirstReachTime,
                         target.DwellTime,
                         trialDuration,
-                        config.Phi,
                         config.W,
                         config.S0,
                         config.Omega0,

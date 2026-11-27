@@ -503,7 +503,7 @@ namespace DynamicHighlights
             // 見どころ範囲の端（v₁, v₂）を黄色の線で描く
             if (config != null)
             {
-                MappingEndpoints e = HighlightMapping.ComputeEndpoints(config.Phi, config.W, config.S0);
+                MappingEndpoints e = HighlightMapping.ComputeEndpoints(controller != null ? controller.CurrentPhi : config.Phi, config.W, config.S0);
                 Gizmos.color = Color.yellow;
                 Gizmos.DrawRay(origin, DirectionFromYaw(e.V1) * 6f);
                 Gizmos.DrawRay(origin, DirectionFromYaw(e.V2) * 6f);

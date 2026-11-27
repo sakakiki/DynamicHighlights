@@ -11,7 +11,7 @@
 //   ・頭を右に 25° 向けたとき、カメラが条件どおりの向き（v）になる
 //       通常のVR視聴 → 25°、制御一定 → 約 32.42°、動的制御（止まっている） → 25°
 //   ・見どころと反対側（左）を向いたときは、どの条件でも制御されない
-//   ・1試行を開始して終了すると、CSV ファイルが保存される
+//   ・試行を開始して終了すると CSV ファイルが保存され、パターンに応じてオブジェクトが表示される
 //   ・カメラ挙動チェックの自動再生で頭が動く
 //   ・スロー再生でも、角速度 ω は本来の速さで計算される
 //   ・一時停止中は ω・s・v が保たれる（視界が勝手に動かない）
@@ -27,6 +27,7 @@
 
 using System.Collections;
 using System.IO;
+using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -116,8 +117,15 @@ namespace DynamicHighlights.Tests
             _flow.BeginExperiment();
             Assert.AreEqual(ExperimentFlow.State.Ready, _flow.CurrentState);
 
+            // 最初の試行は練習の「見どころの鑑賞」（右）：見どころだけが表示され、φ がその試行の値になる
+            PlannedTrial first = _flow.CurrentTrial;
+            Assert.IsTrue(first.IsPractice);
+            Assert.AreEqual(ViewingPattern.Highlight, first.Pattern);
+
             _flow.StartTrial();
             Assert.AreEqual(ExperimentFlow.State.Running, _flow.CurrentState);
+            Assert.AreEqual(first.HighlightYaw, _controller.CurrentPhi, 1e-4f, "見どころの方向が試行の値になる");
+            Assert.AreEqual(1, _flow.targets.Count(t => t.IsVisible), "見どころの鑑賞では見どころだけを表示");
             yield return Wait(10);
 
             string framesFile = _flow.logger.LastFramesFilePath;
@@ -129,8 +137,19 @@ namespace DynamicHighlights.Tests
 
             string summary = Path.Combine(folder, "P99_summary.csv");
             Assert.IsTrue(File.Exists(summary), "まとめファイルが保存されている");
-            int targetCount = _flow.targets.Count;
-            Assert.AreEqual(1 + targetCount, File.ReadAllLines(summary).Length, "ヘッダー + オブジェクトの数の行");
+            string[] lines = File.ReadAllLines(summary);
+            Assert.AreEqual(2, lines.Length, "ヘッダー + 表示していたオブジェクト（見どころ）の1行");
+            StringAssert.Contains("pattern", lines[0], "パターンの列がある");
+            StringAssert.Contains(",Highlight,1,", lines[1], "見どころの行で、見てもらう対象（is_intended = 1）になっている");
+
+            // 次の試行（練習の「手前の鑑賞」、左）では見どころと青い箱の2つが表示される
+            PlannedTrial second = _flow.CurrentTrial;
+            Assert.AreEqual(ViewingPattern.BeforeHighlight, second.Pattern);
+            _flow.StartTrial();
+            Assert.AreEqual(2, _flow.targets.Count(t => t.IsVisible), "見どころと青い箱を表示");
+            yield return Wait(3);
+            _flow.EndTrial();
+            Assert.AreEqual(1 + 1 + 2, File.ReadAllLines(summary).Length, "2試行目の2行が追記される");
 
             Directory.Delete(folder, true);
         }

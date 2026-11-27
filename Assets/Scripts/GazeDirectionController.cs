@@ -92,6 +92,20 @@ namespace DynamicHighlights
         /// <summary>見どころ範囲内の傾き s（1 = 制御なし）</summary>
         public float Slope { get; private set; } = 1f;
 
+        /// <summary>
+        /// 試行ごとに見どころ方向 φ を変えるための上書き値 [度]（符号つき。左なら負）。
+        /// <para>
+        /// null なら設定ファイルの φ（highlightDirection）を使います。
+        /// 実験では、ExperimentFlow が試行の開始時に、その試行の見どころの方向を入れます。
+        /// 「float?」の「?」は「値が無い（null）こともある」という意味です（Nullable 型）。
+        /// </para>
+        /// </summary>
+        public float? PhiOverride { get; set; }
+
+        /// <summary>いま使っている見どころ方向 φ [度]（上書き値があればそれ、無ければ設定ファイルの値）</summary>
+        public float CurrentPhi => PhiOverride ?? (config != null ? config.Phi : 45f);
+        // 「A ?? B」は「A が null でなければ A、null なら B」という意味の書き方です。
+
         /// <summary>制御強度 c = (1 − s)/(1 − s₀)（0 = 制御なし、1 = 元研究と同じ強さ）</summary>
         public float ControlStrength => condition == ViewingCondition.NoControl
             ? 0f
@@ -302,12 +316,12 @@ namespace DynamicHighlights
 
                 case ViewingCondition.FixedControl:
                     // 元にした研究：s = s₀ 固定の絶対写像
-                    return HighlightMapping.MapAbsolute(r, config.Phi, config.W, config.S0, config.L);
+                    return HighlightMapping.MapAbsolute(r, CurrentPhi, config.W, config.S0, config.L);
 
                 case ViewingCondition.DynamicControl:
                     // 本研究：s = s(ω) の絶対写像   v = F(r; s(ω))
                     // ※ 頭を急に止めると s が 1 に戻り、r が同じでも v が少し戻る（既知の挙動。実験前に口頭で注意する）
-                    return HighlightMapping.MapAbsolute(r, config.Phi, config.W, Slope, config.L);
+                    return HighlightMapping.MapAbsolute(r, CurrentPhi, config.W, Slope, config.L);
 
                 default:
                     return r;

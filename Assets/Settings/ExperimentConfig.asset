@@ -18,6 +18,11 @@ MonoBehaviour:
   minSlope: 0.55
   omegaThreshold: 90
   velocityFrameCount: 5
+  beforePatternHighlightAngle: 60
+  beforePatternObjectAngle: 30
+  beyondPatternHighlightAngle: 30
+  beyondPatternObjectAngle: 60
+  trialsPerSide: 3
   includePracticeTrial: 1
   trialDurationSeconds: 0
   gazeAngleThreshold: 10

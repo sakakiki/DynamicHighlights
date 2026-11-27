@@ -121,7 +121,7 @@ namespace DynamicHighlights
         /// </summary>
         private void UpdateGraphTexture(float s)
         {
-            string settings = $"{config.Phi}/{config.W}/{config.L}";
+            string settings = $"{controller.CurrentPhi}/{config.W}/{config.L}";
             if (_graph != null && Mathf.Abs(s - _drawnSlope) < 0.005f && settings == _drawnSettings) return;
             _drawnSlope = s;
             _drawnSettings = settings;
@@ -135,7 +135,7 @@ namespace DynamicHighlights
             // ① 背景と見どころ範囲の帯
             var background = new Color(0.12f, 0.12f, 0.14f, 0.9f);
             var band = new Color(0.25f, 0.22f, 0.10f, 0.9f);
-            MappingEndpoints e = HighlightMapping.ComputeEndpoints(config.Phi, config.W, s);
+            MappingEndpoints e = HighlightMapping.ComputeEndpoints(controller.CurrentPhi, config.W, s);
             for (int y = 0; y < GraphSize; y++)
             {
                 float v = Mathf.Lerp(-GraphRange, GraphRange, y / (float)(GraphSize - 1));
@@ -162,7 +162,7 @@ namespace DynamicHighlights
             for (int x = 0; x < GraphSize; x++)
             {
                 float r = Mathf.Lerp(-GraphRange, GraphRange, x / (float)(GraphSize - 1));
-                float v = HighlightMapping.MapAbsolute(r, config.Phi, config.W, s, config.L);
+                float v = HighlightMapping.MapAbsolute(r, controller.CurrentPhi, config.W, s, config.L);
                 int y = Mathf.RoundToInt(ToPixel(v));
                 int from = previousY < 0 ? y : Mathf.Min(previousY, y);
                 int to = previousY < 0 ? y : Mathf.Max(previousY, y);

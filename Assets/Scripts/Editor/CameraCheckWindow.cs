@@ -121,7 +121,7 @@ namespace DynamicHighlights.EditorTools
         {
             string device = _headPose != null && _headPose.IsHmdActive ? "HMD" : "マウス模擬";
             string state = _flow != null ? _flow.CurrentState.ToString() : "-";
-            EditorGUILayout.LabelField($"入力：{device}　　実験の状態：{state}　　φ={config.Phi}°  w={config.W}°  s₀={config.S0}  ω₀={config.Omega0}°/s");
+            EditorGUILayout.LabelField($"入力：{device}　　実験の状態：{state}　　φ={_controller.CurrentPhi}°  w={config.W}°  s₀={config.S0}  ω₀={config.Omega0}°/s");
 
             if (!config.IsValid(out string message))
             {
@@ -187,7 +187,7 @@ namespace DynamicHighlights.EditorTools
                 return;
             }
 
-            CameraCheckDriver.MotionPattern[] patterns = CameraCheckDriver.CreatePatterns(config.Phi);
+            CameraCheckDriver.MotionPattern[] patterns = CameraCheckDriver.CreatePatterns(_controller.CurrentPhi);
 
             // ボタンを2列に並べる
             for (int i = 0; i < patterns.Length; i += 2)
@@ -332,7 +332,7 @@ namespace DynamicHighlights.EditorTools
 
             // 見どころ範囲（外側：画面の向きでの範囲 v₁〜v₂）
             float s = _controller.condition == ViewingCondition.NoControl ? 1f : _controller.Slope;
-            MappingEndpoints e = HighlightMapping.ComputeEndpoints(config.Phi, config.W, s);
+            MappingEndpoints e = HighlightMapping.ComputeEndpoints(_controller.CurrentPhi, config.W, s);
             DrawSector(center, radius, e.V1, e.V2, BandColor);
 
             // 内側の弧：いまの s のときの「実際の頭の向き」での範囲 r₁〜r₂
@@ -390,7 +390,7 @@ namespace DynamicHighlights.EditorTools
             const float angleRange = 100f; // 縦軸 -100°〜100°
 
             // ---- 角度のグラフの目盛り ----
-            MappingEndpoints e = HighlightMapping.ComputeEndpoints(config.Phi, config.W, config.S0);
+            MappingEndpoints e = HighlightMapping.ComputeEndpoints(_controller.CurrentPhi, config.W, config.S0);
             EditorGUI.DrawRect(Rect.MinMaxRect(angleRect.x, AngleToY(angleRect, e.V2, angleRange), angleRect.xMax,
                 AngleToY(angleRect, e.V1, angleRange)), BandColor);
             foreach (float angle in new[] { -90f, -45f, 0f, 45f, 90f })

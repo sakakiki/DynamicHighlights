@@ -53,7 +53,7 @@ namespace DynamicHighlights
         // -----------------------------------------------------------------
         [Header("■ 見どころの設定（元研究の論文 2.2〜2.3節。初期値は論文の評価2で使った最適値）")]
 
-        [Tooltip("φ：見どころ方向 [度]。開始時の正面を 0°、右回りをプラスとした角度。\n見どころは1か所だけで、正なら右側、負なら左側の 0°〜90° だけを制御します（反対側は制御なし）。\n元研究の評価2は 45°。")]
+        [Tooltip("φ：見どころ方向 [度]。開始時の正面を 0°、右回りをプラスとした角度。\n見どころは1か所だけで、正なら右側、負なら左側の 0°〜90° だけを制御します（反対側は制御なし）。\n実験では「見どころの鑑賞」パターンの角度として使い（左右は試行ごとに交互）、カメラ挙動チェックではこの値（符号つき）を使います。\n元研究の評価2は 45°。")]
         [Range(-89f, 89f)]
         public float highlightDirection = 45f;
 
@@ -81,9 +81,32 @@ namespace DynamicHighlights
         public int velocityFrameCount = 5;
 
         // -----------------------------------------------------------------
+        [Header("■ 試行のパターン（角度は正面からの大きさ [度]。左右は試行ごとに交互）")]
+
+        [Tooltip("「見どころより手前の鑑賞」パターンの見どころの角度 [度]。鑑賞対象（青い箱）はこれより手前に置きます。")]
+        [Range(1f, 89f)]
+        public float beforePatternHighlightAngle = 60f;
+
+        [Tooltip("「見どころより手前の鑑賞」パターンの鑑賞対象（青い箱）の角度 [度]。見どころ範囲の外にしてください。")]
+        [Range(1f, 89f)]
+        public float beforePatternObjectAngle = 30f;
+
+        [Tooltip("「見どころより奥の鑑賞」パターンの見どころの角度 [度]。鑑賞対象（青い箱）はこれより奥に置きます。")]
+        [Range(1f, 89f)]
+        public float beyondPatternHighlightAngle = 30f;
+
+        [Tooltip("「見どころより奥の鑑賞」パターンの鑑賞対象（青い箱）の角度 [度]。見どころ範囲の外にしてください。")]
+        [Range(1f, 89f)]
+        public float beyondPatternObjectAngle = 60f;
+
+        [Tooltip("1セット（同じ条件・同じパターン）の中で、左右それぞれ何回ずつ試行するか。\n1セットの試行数はこの2倍（右左交互）になります。")]
+        [Range(1, 10)]
+        public int trialsPerSide = 3;
+
+        // -----------------------------------------------------------------
         [Header("■ 実験の進行")]
 
-        [Tooltip("ON：本番の前に「通常のVR視聴」で練習試行を1回行う（練習のログも保存されます）。")]
+        [Tooltip("ON：本番の前に「通常のVR視聴」で練習セット（3パターンを1回ずつ）を行う（練習のログも保存されます）。")]
         public bool includePracticeTrial = true;
 
         [Tooltip("1試行の制限時間 [秒]。0 にすると制限なし（実験者が Space キーで終了する）。")]
@@ -121,7 +144,58 @@ namespace DynamicHighlights
         /// </summary>
         public bool IsValid(out string message)
         {
-            return HighlightMapping.Validate(highlightDirection, highlightWidth, minSlope, bezierLength, out message);
+            // ① 基本の φ（見どころの鑑賞パターン・カメラ挙動チェック用）
+            if (!HighlightMapping.Validate(highlightDirection, highlightWidth, minSlope, bezierLength, out message))
+            {
+                return false;
+            }
+
+            // ② 手前・奥のパターンの見どころの角度でも、制御関数が成り立つか
+            //    （φ の値によって s の下限や L の上限が変わるため、パターンごとに調べる）
+            foreach (float angle in new[] { beforePatternHighlightAngle, beyondPatternHighlightAngle })
+            {
+                if (!HighlightMapping.Validate(angle, highlightWidth, minSlope, bezierLength, out string detail))
+                {
+                    message = $"パターンの見どころの角度 {angle}° では制御関数が作れません：{detail}";
+                    return false;
+                }
+            }
+
+            // ③ 鑑賞対象（青い箱）が見どころ範囲（φ ± w/2）の中に入っていないか
+            if (!IsOutsideHighlight(beforePatternObjectAngle, beforePatternHighlightAngle, out message) ||
+                !IsOutsideHighlight(beyondPatternObjectAngle, beyondPatternHighlightAngle, out message))
+            {
+                return false;
+            }
+
+            // ④ 手前・奥の向きが名前どおりか
+            if (beforePatternObjectAngle >= beforePatternHighlightAngle)
+            {
+                message = "「手前の鑑賞」では、鑑賞対象の角度を見どころより小さくしてください。";
+                return false;
+            }
+            if (beyondPatternObjectAngle <= beyondPatternHighlightAngle)
+            {
+                message = "「奥の鑑賞」では、鑑賞対象の角度を見どころより大きくしてください。";
+                return false;
+            }
+
+            message = string.Empty;
+            return true;
+        }
+
+        /// <summary>
+        /// 鑑賞対象の角度が、見どころ範囲（仮想視線方向で φ − w/2 〜 φ + w/2）の外にあるかを調べます。
+        /// </summary>
+        private bool IsOutsideHighlight(float objectAngle, float highlightAngle, out string message)
+        {
+            if (Mathf.Abs(objectAngle - highlightAngle) <= highlightWidth / 2f)
+            {
+                message = $"鑑賞対象の角度 {objectAngle}° が、見どころ（{highlightAngle}°）の見どころ範囲 w={highlightWidth}° の中に入っています。";
+                return false;
+            }
+            message = string.Empty;
+            return true;
         }
 
         /// <summary>
